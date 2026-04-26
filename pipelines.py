@@ -25,7 +25,7 @@ class EcommercePriceComparerPipeline:
                 adapter[category] = None
 
         # loweracase
-        to_lower = ['color','category','availability','manufacturer','name']
+        to_lower = ['color','category','availability','manufacturer','name','size']
         for category in to_lower:
             value = adapter.get(category)
             if value:
@@ -38,7 +38,7 @@ class EcommercePriceComparerPipeline:
         for category in to_reg_price:
             price = adapter.get(category)
             if price:
-                price = re.sub(r'[^0-9,]', '', price).replace(",", ".")
+                price = re.sub(r'[^0-9,.]', '', price).replace(",", ".").replace(" ", "")
                 adapter[category] = float(price)
             else:
                 adapter[category] = None
@@ -51,13 +51,24 @@ class EcommercePriceComparerPipeline:
             else:
                 adapter[category] = None
 
+        #sku
+        sku_is_none = ['sku']
+        for category in sku_is_none:
+            sku = adapter.get(category)
+            if sku is None:
+                if adapter['name'] and adapter['color'] and adapter['size']:
+                    adapter['sku'] = adapter['name'] + "-" + adapter['color'] + "-" + adapter['size']
+                elif adapter['name'] and adapter['color']:
+                    adapter['sku'] = adapter['name'] + "-" + adapter['color']
+                elif adapter['name'] and adapter['size']:
+                    adapter['sku'] = adapter['name'] + "-" + adapter['size']
+                elif adapter['color'] and adapter['size']:
+                    adapter['sku'] = adapter['color'] + "-" + adapter['size']
 
         #name regulation
         to_reg_name = ['name']
         for category in to_reg_name:
             name = adapter.get(category)
-
-
             if name:
                 if adapter['size'] and adapter['color']:
                     adapter[category] = name.replace(adapter['size'],"").replace(adapter['color'],"").strip()
@@ -69,49 +80,81 @@ class EcommercePriceComparerPipeline:
                     adapter[category] = name.strip()
             else:
                 adapter[category] = None
+        #size regulation
+        to_reg_size = ['size']
+        for size in to_reg_size:
+            size = adapter.get(size)
+            size = str(size).strip().lower()
+            if '⌀' in size or 'śr.' in size:
+                match = re.search(r'(\d+)', size)
+                if match:
+                    size = match.group(1)
+
+            size_map = {
+                'mała': 'S',
+                'średnia': 'M',
+                'duża': 'L',
+                'pokrowiec tradycyjny': 'uniwersalny',
+
+            }
+
+            standardized = size_map.get(size.lower(), size)
+            adapter['size'] = standardized
+
+
 
 
         # color
         color = ['color']
         junk_phrases = ['pościel utrzymana w', 'tonacji', 'tonacja', 'z pięknym subtelnym połyskiem', 'delikatna',
-                        'pościel utrzymana jest w','naturalna']
+                        'pościel utrzymana jest w','naturalna', 'odcienie']
+        color_map = {
+            'niebieski': ['niebieski', 'turkus', 'turquesa', 'azul', 'denim', 'morski', 'blue', 'sky'],
+            'szary': ['szary', 'szarości', 'antracyt', 'anthracit', 'silver', 'srebrny', 'grey', 'gray', 'plata',
+                      'grafit','szarej'],
+            'beżowy': ['beż', 'beżu', 'natural', 'crudo', 'piaskowy', 'sand', 'taupe', 'oat', 'linen', 'cream',
+                       'kremowy','kremowej'],
+            'biały': ['biały', 'bieli', 'white', 'blanco', 'ivory','białej'],
+            'czarny': ['czarny', 'czerni', 'black', 'negro','czarnej'],
+            'zielony': ['zielony', 'zieleni', 'green', 'verde', 'oliwka', 'olive', 'bottle','zielonej'],
+            'żółty': ['żółty', 'żółtego', 'yellow', 'gold', 'oro', 'mostaza', 'ginkgo','żółtej'],
+            'czerwony': ['czerwony', 'czerwieni', 'red', 'rojo', 'terracota','czerwonej'],
+            'różowy': ['różowy', 'różu', 'rose', 'pink', 'nude', 'caldera','różowej'],
+            'fioletowy': ['fiolet', 'fioletu', 'lila', 'lilac', 'violet', 'purple','fioletowej'],
+            'brązowy': ['brąz', 'brązu', 'brown', 'marron', 'caffe', 'chocolate','brązowej'],
+            'wielokolorowy': ['wielokolorowy', 'multicolor', 'mix','wielokolorowej'],
+            'bordowy' : ['bordowa','bordowej']
+        }
         for category in color:
             value = adapter.get(category)
             if value:
                 for phrase in junk_phrases:
+                    value = value.strip().lower()
                     value = value.replace(phrase, "")
                     value = value.strip()
-                    adapter[category] = str(value.strip())
-                if value[-2:]=="ej":
-                    if value[-3]=="i":
-                        value = value[0:len(value) - 2]
-                        adapter[category] = value
-                    else:
-                        value = value[0:len(value)-2]+"y"
-                        adapter[category] = value
+
+                found_standard = None
+                for standard, keywords in color_map.items():
+                    if any(word in value for word in keywords):
+                        found_standard = standard
+                        break
+                if found_standard:
+                    adapter['color'] = found_standard
                 else:
-                    if value[-1]=="a":
-                        value = value[0:len(value) - 1] + "y"
-                        adapter[category] = value
-                adapter['sku'] = adapter['sku'] + "-" + adapter['color']
-            else:
-                adapter[category] = None
-
-
-
+                    adapter['color'] = value
 
         return item
 class SaveToPostgresSQLPipeline:
     def __init__(self):
         self.conn = psycopg2.connect(
-            host="localhost",
-            user='spiders_admin',
-            password='PAssword!',
+            host='localhost',
+            user='postgres',
+            password='***',
             database="ecommerce_data",
         )
         self.cur = self.conn.cursor()
         self.cur.execute("""
-            CREATE TABLE IF NOT EXISTS Products (
+            CREATE TABLE IF NOT EXISTS productsone (
             id SERIAL PRIMARY KEY,
             sku VARCHAR(100) UNIQUE,
             name TEXT,
@@ -130,10 +173,13 @@ class SaveToPostgresSQLPipeline:
             );
         """
         )
+        self.conn.commit()
+        print("Table crated")
+
     def process_item(self, item, spider):
         try:
             self.cur.execute("""
-            insert into Products (
+            insert into productsone (
             sku,
             name,
             size,
@@ -175,4 +221,5 @@ class SaveToPostgresSQLPipeline:
     def close_spider(self, spider):
         self.cur.close()
         self.conn.close()
+
 

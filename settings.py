@@ -7,6 +7,9 @@
 #     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
 #     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
 import random
+
+from rotating_proxies.middlewares import RotatingProxyMiddleware
+
 BOT_NAME = "ecommerce_price_comparer"
 
 SPIDER_MODULES = ["ecommerce_price_comparer.spiders"]
@@ -36,7 +39,6 @@ RANDOMIZE_DOWNLOAD_DELAY = True
 
 # Disable Telnet Console (enabled by default)
 TELNETCONSOLE_ENABLED = False
-
 # Override the default request headers:
 #DEFAULT_REQUEST_HEADERS = {
 #    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -54,6 +56,8 @@ TELNETCONSOLE_ENABLED = False
 DOWNLOADER_MIDDLEWARES = {
    # "ecommerce_price_comparer.middlewares.EcommercePriceComparerDownloaderMiddleware": 543,
    "ecommerce_price_comparer.middlewares.FakeUserAgentMiddleware": 400,
+    # "rotating_proxies.middlewares.RotatingProxyMiddleware": 610,
+    # "rotating_proxies.middlewares.BanDetectionMiddleware":620,
 }
 
 # Enable or disable extensions
@@ -98,7 +102,12 @@ ITEM_PIPELINES = {
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
-
+#rotating proxy
+ROTATING_PROXY_LIST =[
+    '138.97.2.198:4145',
+    '201.68.215.79:61221',
+    '62.201.214.146:8080'
+]
 #FAKEUSER AGENT
 SCRAPE_OPS_API_KEY = 'e8017e79-2dbb-4b9e-a9ce-6974dc387de2'
 SCRAPE_OPS_FAKE_USER_AGENT_ENDPOINT = 'https://headers.scrapeops.io/v1/user-agents'
