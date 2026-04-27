@@ -49,6 +49,7 @@ class PodPierzynaSpider(scrapy.Spider):
                 new_current_link = current_link + "?counter=1"
                 yield response.follow(new_current_link, callback=self.get_product_links)
     def get_data_from_links(self, response):
+        sizes_and_info = {}
         category = None
         final_json = None
         price_special = None

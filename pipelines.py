@@ -1,114 +1,103 @@
-# Define your item pipelines here
-#
-# Don't forget to add your pipeline to the ITEM_PIPELINES setting
-# See: https://docs.scrapy.org/en/latest/topics/item-pipeline.html
-
-
-# useful for handling different item types with a single interface
 from itemadapter import ItemAdapter
 import re
 import psycopg2
+from scrapy.utils import spider
 
+
+class DataCleaner:
+    @staticmethod
+    def to_lowercase(value, spider=None):
+        if not value:
+            return None
+        try:
+            return value.lower()
+        except AttributeError:
+            if spider:
+                spider.logger.warning(f"Error with lowercasing: {value}")
+            #mozna spróbować robic str(value).lower() ale narazie zostawie tak
+            return value
+
+    @staticmethod
+    def to_strip(value,spider=None):
+        if not value:
+            return None
+        try:
+            return value.strip()
+        except AttributeError:
+            if spider:
+                spider.logger.warning(f"Error with striping: {value}")
+            return value
+    @staticmethod
+    def standardize_availability_link(link):
+        if not link:
+            return None
+        return link.replace("http://schema.org/", "")
+    @staticmethod
+    def clean_price(price):
+        if not price:
+            return None
+        price = re.sub(r'[^0-9,.]', '', str(price)).replace(",", ".").replace(" ", "")
+        try:
+            return float(price)
+        except ValueError:
+            return None
+    @staticmethod
+    def sku_normalize(name, color , size, manufacturer):
+        parts_of_sku = [name, color , size, manufacturer]
+        #moze dodać strip i lower ale raczej nie bo bedzie robione po nich
+
+        validate_parts = [str("-".join(part.replace("-","").split())).strip() for part in parts_of_sku if part]
+        sku = "-".join(validate_parts)
+        if not sku:
+            return None
+        return sku
+    @staticmethod
+    def standardize_color(color, color_map , junk_phrases):
+            if not color:
+                return None
+            for phrase in junk_phrases:
+                color = color.replace(phrase, "")
+                color = color.strip()
+            for standard, keywords in color_map.items():
+                if any(word in color for word in keywords):
+                    return standard
+            return color
+    @staticmethod
+    def standardize_name(name, color, size,manufacturer):
+        if not name:
+            return None
+        to_clean_from_name = [size , color , manufacturer]
+        for clean_part in to_clean_from_name:
+            if clean_part:
+                name = name.replace(str(clean_part), "")
+        #unikamy podwojnych spacji przy usunieciach kilku
+        return " ".join(name.split()).strip()
+    @staticmethod
+    def standardize_size(size, size_map):
+        if not size:
+            return None
+        size_str = str(size).strip().lower()
+        if '⌀' in size_str or 'śr.' in size_str:
+            match = re.search(r'(\d+)', size_str)
+            if match:
+                return match.group(1)
+        size_norm = re.sub(r'[^0-9x]', '', size_str)
+        if 'x' in size_norm and any(char.isdigit() for char in size_norm):
+            return size_norm
+        return size_map.get(size_str, size_str)
+
+    @staticmethod
+    def clean_description(description):
+        if not description:
+            return None
+        description = re.sub(r'\s+', ' ', description)
+        return description.strip()
 
 class EcommercePriceComparerPipeline:
-    def process_item(self, item, spider):
-        adapter = ItemAdapter(item)
-        field_names = adapter.field_names()
-        # Striping
-        for category in field_names:
-            value = adapter.get(category)
-            if value:
-                if category != 'description':
-                    value = adapter.get(category)
-                    adapter[category] = value.strip()
-            else:
-                adapter[category] = None
-
-        # loweracase
-        to_lower = ['color','category','availability','manufacturer','name','size']
-        for category in to_lower:
-            value = adapter.get(category)
-            if value:
-                adapter[category] = value.lower()
-            else:
-                adapter[category] = None
-
-        #price_format
-        to_reg_price=['price_normal','price_special']
-        for category in to_reg_price:
-            price = adapter.get(category)
-            if price:
-                price = re.sub(r'[^0-9,.]', '', price).replace(",", ".").replace(" ", "")
-                adapter[category] = float(price)
-            else:
-                adapter[category] = None
-        #availability
-        to_shorten_avb = ['availability']
-        for category in to_shorten_avb:
-            value = adapter.get(category)
-            if value:
-                adapter[category] = value.replace("http://schema.org/", "")
-            else:
-                adapter[category] = None
-
-        #sku
-        sku_is_none = ['sku']
-        for category in sku_is_none:
-            sku = adapter.get(category)
-            if sku is None:
-                if adapter['name'] and adapter['color'] and adapter['size']:
-                    adapter['sku'] = adapter['name'] + "-" + adapter['color'] + "-" + adapter['size']
-                elif adapter['name'] and adapter['color']:
-                    adapter['sku'] = adapter['name'] + "-" + adapter['color']
-                elif adapter['name'] and adapter['size']:
-                    adapter['sku'] = adapter['name'] + "-" + adapter['size']
-                elif adapter['color'] and adapter['size']:
-                    adapter['sku'] = adapter['color'] + "-" + adapter['size']
-
-        #name regulation
-        to_reg_name = ['name']
-        for category in to_reg_name:
-            name = adapter.get(category)
-            if name:
-                if adapter['size'] and adapter['color']:
-                    adapter[category] = name.replace(adapter['size'],"").replace(adapter['color'],"").strip()
-                elif adapter['size']:
-                    adapter[category] = name.replace(adapter['size'], "").strip()
-                elif adapter['color']:
-                    adapter[category] = name.replace(adapter['color'],"").strip()
-                else:
-                    adapter[category] = name.strip()
-            else:
-                adapter[category] = None
-        #size regulation
-        to_reg_size = ['size']
-        for size in to_reg_size:
-            size = adapter.get(size)
-            size = str(size).strip().lower()
-            if '⌀' in size or 'śr.' in size:
-                match = re.search(r'(\d+)', size)
-                if match:
-                    size = match.group(1)
-
-            size_map = {
-                'mała': 'S',
-                'średnia': 'M',
-                'duża': 'L',
-                'pokrowiec tradycyjny': 'uniwersalny',
-
-            }
-
-            standardized = size_map.get(size.lower(), size)
-            adapter['size'] = standardized
-
-
-
-
-        # color
-        color = ['color']
-        junk_phrases = ['pościel utrzymana w', 'tonacji', 'tonacja', 'z pięknym subtelnym połyskiem', 'delikatna',
+    def __init__(self):
+        self.junk_phrases = ['pościel utrzymana w', 'tonacji', 'tonacja', 'z pięknym subtelnym połyskiem', 'delikatna',
                         'pościel utrzymana jest w','naturalna', 'odcienie']
-        color_map = {
+        self.color_map = {
             'niebieski': ['niebieski', 'turkus', 'turquesa', 'azul', 'denim', 'morski', 'blue', 'sky'],
             'szary': ['szary', 'szarości', 'antracyt', 'anthracit', 'silver', 'srebrny', 'grey', 'gray', 'plata',
                       'grafit','szarej'],
@@ -125,24 +114,38 @@ class EcommercePriceComparerPipeline:
             'wielokolorowy': ['wielokolorowy', 'multicolor', 'mix','wielokolorowej'],
             'bordowy' : ['bordowa','bordowej']
         }
-        for category in color:
+        self.size_map = {
+                'mała': 'S',
+                'średnia': 'M',
+                'duża': 'L',
+                'pokrowiec tradycyjny': 'uniwersalny',
+
+            }
+        self.to_lowercase_list = ['color','category','availability','manufacturer','name','size']
+        self.to_normalize_prize =['price_normal','price_special']
+    def process_item(self, item, spider):
+        adapter = ItemAdapter(item)
+        #striping all field besides description
+        for category in adapter.field_names():
+            if category != 'description':
+                value = adapter.get(category)
+                value = DataCleaner.to_strip(value,spider)
+                adapter[category] = value
+        for category in self.to_lowercase_list:
             value = adapter.get(category)
-            if value:
-                for phrase in junk_phrases:
-                    value = value.strip().lower()
-                    value = value.replace(phrase, "")
-                    value = value.strip()
+            value = DataCleaner.to_lowercase(value,spider)
+            adapter[category] = value
+        for price in self.to_normalize_prize:
+            value = adapter.get(price)
+            value = DataCleaner.clean_price(value)
+            adapter[price] = value
 
-                found_standard = None
-                for standard, keywords in color_map.items():
-                    if any(word in value for word in keywords):
-                        found_standard = standard
-                        break
-                if found_standard:
-                    adapter['color'] = found_standard
-                else:
-                    adapter['color'] = value
-
+        adapter['availability'] = DataCleaner.standardize_availability_link(adapter.get('availability'))
+        adapter['name'] = DataCleaner.standardize_name(adapter.get('name'),adapter.get('color'),adapter.get('size'),adapter.get('manufacturer'))
+        adapter['size'] = DataCleaner.standardize_size(adapter.get('size'),self.size_map)
+        adapter['color'] = DataCleaner.standardize_color(adapter.get('color'),self.color_map,self.junk_phrases)
+        adapter['sku'] = DataCleaner.sku_normalize(adapter.get('name'),adapter.get('color'),adapter.get('size'),adapter.get('manufacturer'))
+        adapter['description'] = DataCleaner.clean_description(adapter.get('description'))
         return item
 class SaveToPostgresSQLPipeline:
     def __init__(self):

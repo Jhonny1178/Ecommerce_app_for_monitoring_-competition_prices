@@ -61,9 +61,6 @@ class JmbdesingSpider(scrapy.Spider):
         if not description:
             description = response.css('.product-description ::text').getall()
             description = " ".join(description).strip()
-        yield {
-            'description': description,
-        }
         clean_url = response.url.split('?')[0].split('#')[0]
 
         variant_groups = response.css('div.product-variants-item')
