@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Strategii Cenowej AI</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        h1 { text-align: center; color: #2c3e50; }
+        .grid {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .box {
+            flex: 1;
+            background: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .box h2 { margin-top: 0; font-size: 18px; color: #34495e; border-bottom: 2px solid #bdc3c7; padding-bottom: 10px; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-weight: bold; }
+        .btn-container { text-align: center; margin: 30px 0; }
+        button {
+            background-color: #2980b9;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        button:hover { background-color: #3498db; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
+        #loading { display: none; text-align: center; font-style: italic; color: #7f8c8d; }
+        #wynik-ai {
+            display: none;
+            background: #e8f8f5;
+            border-left: 5px solid #1abc9c;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 5px;
+        }
+        .cena-highlight { font-size: 24px; color: #27ae60; font-weight: bold; }
+        .badge-red { color: #e74c3c; font-size: 12px; }
+        .badge-green { color: #2ecc71; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Panel Strategii Cenowej AI</h1>
+
+    <div class="grid">
+        <div class="box">
+            <h2>Nasz Produkt</h2>
+            <div class="data-row"><span>Cena producenta:</span> <span id="nasz-prod">...</span></div>
+            <div class="data-row"><span>Cena hurtowa:</span> <span id="nasz-hurt">...</span></div>
+            <div class="data-row"><span>Stan magazynu:</span> <span id="nasz-stan">...</span></div>
+            <hr>
+            <div class="data-row" style="color:#e67e22;"><span>Cena z algorytmu:</span> <span id="cena-algo">...</span></div>
+        </div>
+
+        <div class="box">
+            <h2>Rynek (Konkurencja)</h2>
+            <ul id="lista-konkurencji" style="list-style-type: none; padding: 0; margin: 0;">
+                <li>Ładowanie danych...</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="btn-container">
+        <button id="btn-rekomenduj" onclick="pobierzRekomendacje()">REKOMENDUJ CENĘ (AI)</button>
+        <p id="loading">Łączenie z modelem Llama 3 (Groq)... Proszę czekać.</p>
+    </div>
+
+    <div id="wynik-ai">
+        <h2>Rekomendacja Dyrektora AI</h2>
+        <p><strong>Zaproponowana cena:</strong> <span class="cena-highlight" id="ai-cena"></span> PLN</p>
+        <p><strong>Wybrana strategia:</strong> <span id="ai-strategia"></span></p>
+        <p><strong>Argumentacja:</strong> <span id="ai-argument"></span></p>
+    </div>
+</div>
+
+<script>
+    // 1. Po załadowaniu strony pobierz dane z algorytmu Pythona
+    window.onload = function() {
+        fetch('/pobierz_dane')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('nasz-prod').innerText = data.nasz_produkt.cena_producenta + " PLN";
+                document.getElementById('nasz-hurt').innerText = data.nasz_produkt.cena_hurtowa + " PLN";
+                document.getElementById('nasz-stan').innerText = data.nasz_produkt.stan_magazynu + " szt.";
+                document.getElementById('cena-algo').innerText = data.cena_algorytmu.toFixed(2) + " PLN";
+
+                // Generowanie listy konkurencji
+                let listaHTML = '';
+                data.konkurencja.forEach((sklep, index) => {
+                    let dostepnosc = sklep.stan_magazynu ?
+                        '<span class="badge-green">(Dostępny)</span>' :
+                        '<span class="badge-red">(Brak towaru)</span>';
+                    listaHTML += `<li style="margin-bottom: 8px;">Sklep ${index + 1}: <b>${sklep.cena} PLN</b> ${dostepnosc}</li>`;
+                });
+                document.getElementById('lista-konkurencji').innerHTML = listaHTML;
+            });
+    };
+
+    // 2. Funkcja wywoływana po kliknięciu przycisku AI
+    function pobierzRekomendacje() {
+        const btn = document.getElementById('btn-rekomenduj');
+        const loading = document.getElementById('loading');
+        const wynikDiv = document.getElementById('wynik-ai');
+
+        // Blokujemy przycisk i pokazujemy tekst ładowania
+        btn.disabled = true;
+        loading.style.display = 'block';
+        wynikDiv.style.display = 'none';
+
+        // Wysyłamy żądanie do Flask (który pyta Groq)
+        fetch('/rekomenduj')
+            .then(response => response.json())
+            .then(data => {
+                // Ukrywamy ładowanie, odblokowujemy przycisk
+                loading.style.display = 'none';
+                btn.disabled = false;
+
+                // Wstawiamy dane od AI
+                if(data && data.nowa_cena) {
+                    document.getElementById('ai-cena').innerText = data.nowa_cena;
+                    // Jeśli używasz promptu "wolnego" to klucze mogą się nazywać 'strategia', a jeśli "sztywnego" to np. 'zastosowana_regula'.
+                    // Poniżej łapię najczęstsze warianty:
+                    document.getElementById('ai-strategia').innerText = data.strategia || data.wybrana_strategia || data.zastosowana_regula || "Brak danych";
+                    document.getElementById('ai-argument').innerText = data.argumentacja;
+
+                    // Pokazujemy okienko z wynikiem
+                    wynikDiv.style.display = 'block';
+                } else {
+                    alert("Błąd połączenia z API. Sprawdź konsolę Pythona.");
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                btn.disabled = false;
+                alert("Wystąpił błąd podczas łączenia z serwerem.");
+                console.error(error);
+            });
+    }
+</script>
+
+</body>
+</html>

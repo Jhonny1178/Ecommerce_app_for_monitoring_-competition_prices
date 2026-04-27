@@ -1,0 +1,20 @@
+# system
+.DS_Store
+
+# IDE
+.idea/
+
+# Python cache
+__pycache__/
+
+# wirtualne środowisko (jeśli kiedyś wrzuciłeś venv)
+.venv/
+
+# dane / output
+out.tsv
+
+# inne projekty/śmieci
+tripadvisor-review-prediction/
+bot.red
+cw8.py
+demo.py
