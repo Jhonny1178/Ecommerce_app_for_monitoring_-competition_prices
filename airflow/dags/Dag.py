@@ -28,8 +28,7 @@ with DAG(
     for spider_name in spiders_to_run :
         scrape_task = BashOperator(
             task_id=f'task_{spider_name}',
-            bash_command=f'export PYTHONPATH=/opt/airflow/dags:/opt/airflow/dags/ecommerce_price_comparer:$PYTHONPATH && cd /opt/airflow/dags/ecommerce_price_comparer/ && scrapy crawl {spider_name}',
-
+            bash_command=f'export PYTHONPATH=$PYTHONPATH:/opt/airflow/dags && cd /opt/airflow/dags/ecommerce_price_comparer && scrapy crawl {spider_name}',
         )
     start >> scrape_task >> end
 
