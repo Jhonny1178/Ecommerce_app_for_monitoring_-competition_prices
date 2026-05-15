@@ -10,7 +10,6 @@ def home():
 
 @app.route('/pobierz_dane')
 def pobierz_dane():
-    # Przekazuje dane z algorytm.py do Frontendu
     return jsonify({
         "nasz_produkt": algorytm.nasz_produkt,
         "konkurencja": algorytm.konkurencja,
@@ -19,7 +18,6 @@ def pobierz_dane():
 
 @app.route('/rekomenduj')
 def rekomenduj():
-    # Uruchamia funkcję LLM z Twojego pliku
     wynik = llm.zapytaj_ai_o_cene(
         algorytm.cena_producenta, algorytm.cena_hurtowa,
         algorytm.stan_magazynu, algorytm.konkurencja,
