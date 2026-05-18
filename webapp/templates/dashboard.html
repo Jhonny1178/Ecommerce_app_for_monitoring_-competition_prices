@@ -6,17 +6,99 @@
 <title>Dashboard – Panel Analityczny</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="../static/dashboard.css">
+<style>
+  /* tab system */
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+  }
+  .tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: .85rem;
+    padding: 10px 20px;
+    margin-bottom: -1px;
+    transition: color .15s, border-color .15s;
+  }
+  .tab-btn:hover  { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* comparison kpis*/
+  .cmp-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .cmp-kpi {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .cmp-kpi label { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; display:block; }
+  .cmp-kpi .val  { font-size: 1.7rem; font-weight: 700; margin: 6px 0 2px; }
+  .cmp-kpi .hint { font-size: .7rem; color: var(--muted); }
+  .val.cheaper   { color: #4fffb0; }
+  .val.expensive { color: #ff6b9d; }
+  .val.equal     { color: #ffe66d; }
+
+  /*comparison filters*/
+  .cmp-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .cmp-filters select, .cmp-filters input {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: .82rem;
+    padding: 7px 11px;
+  }
+
+  /*  comparison table */
+  .diff-pos  { color: #4fffb0; font-weight: 600; }
+  .diff-neg  { color: #ff6b9d; font-weight: 600; }
+  .diff-zero { color: #ffe66d; }
+  .price-our  { color: var(--accent); }
+  .price-comp { color: var(--muted); }
+
+  .badge-shop1 { background: rgba(0,194,255,.15); color: #00c2ff; }
+  .badge-shop2 { background: rgba(167,139,250,.15); color: #a78bfa; }
+
+  .bar-wrap  { display:flex; align-items:center; gap:8px; min-width:130px; }
+  .bar-track { flex:1; height:5px; border-radius:3px; overflow:hidden; }
+  .bar-fill  { height:100%; border-radius:3px; transition: width .3s; }
+
+  .shop-section-label {
+    font-size: .8rem;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    margin-bottom: 8px;
+  }
+</style>
 </head>
 <body>
 
-<!-- NAV -->
 <nav>
   <div class="nav-logo">Analityka</div>
   <div class="nav-sub">Panel zarządzania</div>
-  <a href="/dashboard" class="active"> Dashboard</a>
-  {% if is_admin %}
-  <a href="/admin">Admin</a>
-  {% endif %}
+  <a href="/dashboard" class="active">Dashboard</a>
+  {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
   <div class="nav-spacer"></div>
   <div class="nav-user">
     <strong>{{ username }}</strong>
@@ -26,219 +108,459 @@
   </div>
 </nav>
 
-<!-- MAIN -->
 <main>
   <h1>Dashboard analityczny</h1>
-  <p class="page-sub">Przegląd produktów w bazie danych · dane na żywo z PostgreSQL</p>
+  <p class="page-sub">Przegląd produktów · dane na żywo z PostgreSQL</p>
 
-  <!-- KPI -->
-  <div class="kpi-row">
-    <div class="kpi">
-      <label>Produkty łącznie</label>
-      <div class="val" id="kpi-total">—</div>
-      <div class="kpi-hint">unikalnych SKU</div>
+  <!--tab bar -->
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('overview')">Przegląd</button>
+    <button class="tab-btn"       onclick="switchTab('compare')">Porównanie cen</button>
+  </div>
+
+<!-- tab 1 - overview !-->
+  <div class="tab-panel active" id="tab-overview">
+
+    <div class="kpi-row">
+      <div class="kpi"><label>Produkty łącznie</label><div class="val" id="kpi-total">—</div><div class="kpi-hint">unikalnych SKU</div></div>
+      <div class="kpi"><label>Śr. cena normalna</label><div class="val" id="kpi-avg-normal">—</div><div class="kpi-hint">zł brutto</div></div>
+      <div class="kpi"><label>Śr. cena promocyjna</label><div class="val" id="kpi-avg-special">—</div><div class="kpi-hint">zł brutto</div></div>
+      <div class="kpi"><label>Kategorie</label><div class="val" id="kpi-cats">—</div><div class="kpi-hint">unikalnych</div></div>
+      <div class="kpi"><label>Sklepy</label><div class="val" id="kpi-stores">—</div><div class="kpi-hint">unikalnych</div></div>
+      <div class="kpi"><label>Producenci</label><div class="val" id="kpi-mfr">—</div><div class="kpi-hint">unikalnych</div></div>
     </div>
-    <div class="kpi">
-      <label>Średnia cena</label>
-      <div class="val" id="kpi-avg">—</div>
-      <div class="kpi-hint">zł brutto</div>
+
+    <div class="chart-row">
+      <div class="chart-card"><h2>Produkty wg kategorii</h2><canvas id="chartCategory" height="220"></canvas></div>
+      <div class="chart-card"><h2>Produkty wg sklepu</h2><canvas id="chartStore" height="220"></canvas></div>
     </div>
-    <div class="kpi">
-      <label>Stan magazynowy</label>
-      <div class="val" id="kpi-stock">—</div>
-      <div class="kpi-hint">sztuk łącznie</div>
+    <div class="chart-row">
+      <div class="chart-card"><h2>Śr. cena wg kategorii (zł)</h2><canvas id="chartCatPrice" height="220"></canvas></div>
+      <div class="chart-card"><h2>Dostępność produktów</h2><canvas id="chartAvail" height="220"></canvas></div>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header">
+        <h2>Tabela produktów</h2>
+        <div class="filters">
+          <input id="filterSearch" type="text" placeholder="Szukaj nazwy / SKU…" style="width:160px">
+          <select id="filterCategory"><option value="">Wszystkie kategorie</option></select>
+          <select id="filterStore"><option value="">Wszystkie sklepy</option></select>
+          <select id="filterAvailability">
+            <option value="">Dostępność</option>
+            <option value="Dostępny">Dostępny</option>
+            <option value="Mało">Mało</option>
+            <option value="Niedostępny">Niedostępny</option>
+          </select>
+          <input id="filterMinPrice" type="number" placeholder="Cena min" style="width:90px">
+          <input id="filterMaxPrice" type="number" placeholder="Cena max" style="width:90px">
+          <button class="btn" onclick="loadProducts()">Filtruj</button>
+          <button class="btn-ghost" onclick="resetFilters()">Resetuj</button>
+        </div>
+      </div>
+      <div id="tableWrap"><div class="spinner">Ładowanie danych…</div></div>
     </div>
   </div>
 
-  <!-- CHARTS -->
-  <div class="chart-row">
-    <div class="chart-card">
-      <h2>Produkty wg kategorii</h2>
-      <canvas id="chartCategory" height="220"></canvas>
-    </div>
-    <div class="chart-card">
-      <h2>Średnia cena wg kategorii</h2>
-      <canvas id="chartPrice" height="220"></canvas>
-    </div>
-  </div>
+  <!-- tab 2 - price comparison -->
+  <div class="tab-panel" id="tab-compare">
 
-  <!-- TABLE -->
-  <div class="table-card">
-    <div class="table-header">
-      <h2>Tabela produktów</h2>
-      <div class="filters">
-        <select id="filterCategory">
-          <option value="">Wszystkie kategorie</option>
-        </select>
-        <input id="filterMinPrice" type="number" placeholder="Cena min" style="width:100px">
-        <input id="filterMaxPrice" type="number" placeholder="Cena max" style="width:100px">
-        <button class="btn" onclick="loadProducts()">Filtruj</button>
-        <button class="btn-ghost" onclick="resetFilters()">Resetuj</button>
+    <!-- per-shop summary kpis (rendered dynamically) -->
+    <div id="cmpSummaryWrap"></div>
+
+    <!-- Charts -->
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>Wynik cenowy wg sklepu</h2>
+        <canvas id="chartCmpResult" height="220"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Śr. różnica ceny wg kategorii (zł)</h2>
+        <canvas id="chartCmpCategory" height="220"></canvas>
       </div>
     </div>
-    <div id="tableWrap">
-      <div class="spinner">Ładowanie danych…</div>
+
+    <!-- filters -->
+    <div class="cmp-filters">
+      <select id="cmpFilterShop">
+        <option value="">Wszystkie sklepy</option>
+        <option value="products_shop1">Shop 1</option>
+        <option value="products_shop2">Shop 2</option>
+      </select>
+      <select id="cmpFilterCategory"><option value="">Wszystkie kategorie</option></select>
+      <select id="cmpFilterDiff">
+        <option value="">Wszystkie wyniki</option>
+        <option value="cheaper">Jesteśmy tańsi ↓</option>
+        <option value="expensive">Jesteśmy drożsi ↑</option>
+        <option value="equal">Cena równa =</option>
+      </select>
+      <button class="btn" onclick="loadComparison()">Filtruj</button>
+      <button class="btn-ghost" onclick="resetCmpFilters()">Resetuj</button>
+    </div>
+
+    <!-- comparison table -->
+    <div class="table-card">
+      <div class="table-header">
+        <h2>Zestawienie cen</h2>
+        <span id="cmpCount" style="color:var(--muted);font-size:.8rem"></span>
+      </div>
+      <div id="cmpTableWrap"><div class="spinner">Ładowanie…</div></div>
     </div>
   </div>
+
 </main>
 
 <script>
-const ACCENT  = '#4fffb0';
-const ACCENT2 = '#00c2ff';
-const MUTED   = '#5a6478';
-const BG      = '#0b0e14';
 
-Chart.defaults.color = MUTED;
+//  CONFIG & HELPERS
+const PALETTE = ['#4fffb0','#00c2ff','#ff6b9d','#ffe66d','#a78bfa','#fb923c','#34d399','#f472b6'];
+Chart.defaults.color       = '#5a6478';
 Chart.defaults.borderColor = '#1e2535';
 Chart.defaults.font.family = "'DM Mono', monospace";
 
-let sortCol = 'id', sortDir = 'asc';
-let chartCat, chartPrice;
+let sortCol    = 'id',       sortDir    = 'asc';
+let cmpSortCol = 'diff_abs', cmpSortDir = 'desc';
+let charts = {};
+let cmpData = [];
 
-// stats
-  async function loadStats() {
-  const r    = await fetch('/api/stats');
-  const json = await r.json();
+const gc = n => Array.from({length:n},(_,i)=>PALETTE[i%PALETTE.length]);
+const dc = k => { if(charts[k]){charts[k].destroy();delete charts[k];} };
+const fmt = v => v != null ? parseFloat(v).toFixed(2)+' zł' : '—';
+
+
+//  TAB SWITCHING
+const TAB_IDS = ['overview','compare'];
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', TAB_IDS[i]===name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  if (name === 'compare' && cmpData.length === 0) {
+    loadComparisonSummary();
+    loadComparison();
+  }
+}
+
+
+//  TAB 1 — OVERVIEW
+
+async function loadStats() {
+  const json = await fetch('/api/stats').then(r=>r.json());
+  if (!json.ok) return;
+  const s = json.summary;
+  document.getElementById('kpi-total').textContent       = s.total ?? '—';
+  document.getElementById('kpi-avg-normal').textContent  = s.avg_price_normal  ? parseFloat(s.avg_price_normal).toFixed(2)+' zł'  : '—';
+  document.getElementById('kpi-avg-special').textContent = s.avg_price_special ? parseFloat(s.avg_price_special).toFixed(2)+' zł' : '—';
+  document.getElementById('kpi-cats').textContent        = s.total_categories    ?? '—';
+  document.getElementById('kpi-stores').textContent      = s.total_stores        ?? '—';
+  document.getElementById('kpi-mfr').textContent         = s.total_manufacturers ?? '—';
+
+  const cats   = json.by_category.map(r=>r.category);
+  const counts = json.by_category.map(r=>parseInt(r.count));
+  const prices = json.by_category.map(r=>parseFloat(r.avg_price).toFixed(2));
+  const cc     = gc(cats.length);
+
+  dc('cat');
+  charts.cat = new Chart(document.getElementById('chartCategory'),{
+    type:'doughnut',
+    data:{labels:cats,datasets:[{data:counts,backgroundColor:cc,borderWidth:0}]},
+    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},cutout:'62%'}
+  });
+
+  const stores  = json.by_store.map(r=>r.store);
+  const sCounts = json.by_store.map(r=>parseInt(r.count));
+  const sc      = gc(stores.length);
+  dc('store');
+  charts.store = new Chart(document.getElementById('chartStore'),{
+    type:'bar',
+    data:{labels:stores,datasets:[{label:'Produkty',data:sCounts,backgroundColor:sc.map(c=>c+'bb'),borderColor:sc,borderWidth:1,borderRadius:4}]},
+    options:{plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'#1e2535'}}}}
+  });
+
+  dc('catprice');
+  charts.catprice = new Chart(document.getElementById('chartCatPrice'),{
+    type:'bar',
+    data:{labels:cats,datasets:[{label:'Śr. cena (zł)',data:prices,backgroundColor:cc.map(c=>c+'bb'),borderColor:cc,borderWidth:1,borderRadius:4}]},
+    options:{plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'#1e2535'},ticks:{callback:v=>v+' zł'}}}}
+  });
+
+  const avails  = json.by_availability.map(r=>r.availability??'Nieznana');
+  const aCounts = json.by_availability.map(r=>parseInt(r.count));
+  dc('avail');
+  charts.avail = new Chart(document.getElementById('chartAvail'),{
+    type:'doughnut',
+    data:{labels:avails,datasets:[{data:aCounts,backgroundColor:['#4fffb0','#ffe66d','#ff6b9d','#a78bfa'],borderWidth:0}]},
+    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},cutout:'62%'}
+  });
+}
+
+async function loadDropdowns() {
+  const [catRes, storeRes] = await Promise.all([
+    fetch('/api/categories').then(r=>r.json()),
+    fetch('/api/stores').then(r=>r.json()),
+  ]);
+  if (catRes.ok) {
+    [document.getElementById('filterCategory'), document.getElementById('cmpFilterCategory')]
+      .forEach(sel => catRes.data.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);}));
+  }
+  if (storeRes.ok) {
+    const sel = document.getElementById('filterStore');
+    storeRes.data.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});
+  }
+}
+
+async function loadProducts() {
+  const p = new URLSearchParams({sort:sortCol,order:sortDir});
+  const search = document.getElementById('filterSearch').value.trim();
+  const cat    = document.getElementById('filterCategory').value;
+  const store  = document.getElementById('filterStore').value;
+  const avail  = document.getElementById('filterAvailability').value;
+  const minP   = document.getElementById('filterMinPrice').value;
+  const maxP   = document.getElementById('filterMaxPrice').value;
+  if (search) p.set('search',   search);
+  if (cat)    p.set('category', cat);
+  if (store)  p.set('store',    store);
+  if (avail)  p.set('availability', avail);
+  if (minP)   p.set('min_price', minP);
+  if (maxP)   p.set('max_price', maxP);
+
+  document.getElementById('tableWrap').innerHTML='<div class="spinner">Ładowanie…</div>';
+  const json = await fetch('/api/products?'+p).then(r=>r.json());
+  if (!json.ok){document.getElementById('tableWrap').innerHTML=`<p class="no-data">Błąd: ${json.error}</p>`;return;}
+  renderProductsTable(json.data);
+}
+
+function renderProductsTable(rows) {
+  if (!rows.length){document.getElementById('tableWrap').innerHTML='<p class="no-data">Brak wyników.</p>';return;}
+  const cols=[
+    {key:'id',label:'ID'},{key:'sku',label:'SKU'},{key:'name',label:'Nazwa'},
+    {key:'category',label:'Kategoria'},{key:'size',label:'Rozmiar'},{key:'color',label:'Kolor'},
+    {key:'manufacturer',label:'Producent'},{key:'store',label:'Sklep'},
+    {key:'price_normal',label:'Cena norm.'},{key:'price_special',label:'Cena prom.'},
+    {key:'availability',label:'Dostępność'},{key:'date_of_download',label:'Pobrano'},
+  ];
+  let html='<table><thead><tr>';
+  cols.forEach(c=>{
+    const icon=sortCol===c.key?(sortDir==='asc'?'▲':'▼'):'⇅';
+    html+=`<th onclick="changeSort('${c.key}')">${c.label} <span class="sort-icon">${icon}</span></th>`;
+  });
+  html+='</tr></thead><tbody>';
+  rows.forEach(r=>{
+    const date=r.date_of_download?new Date(r.date_of_download).toLocaleDateString('pl'):'—';
+    const disc=(r.price_normal&&r.price_special&&r.price_special<r.price_normal)
+      ?`<span style="color:var(--accent);font-size:.7rem">-${Math.round((1-r.price_special/r.price_normal)*100)}%</span>`:'';
+    const ac=r.availability==='Dostępny'?'color:var(--accent)':r.availability==='Mało'?'color:#ffe66d':'color:var(--error)';
+    html+=`<tr>
+      <td style="color:var(--muted)">#${r.id}</td>
+      <td style="font-size:.72rem;color:var(--muted)">${r.sku??'—'}</td>
+      <td>${r.name??'—'}</td>
+      <td><span class="badge">${r.category??'—'}</span></td>
+      <td>${r.size??'—'}</td><td>${r.color??'—'}</td><td>${r.manufacturer??'—'}</td><td>${r.store??'—'}</td>
+      <td class="price-cell">${r.price_normal!=null?parseFloat(r.price_normal).toFixed(2)+' zł':'—'}</td>
+      <td class="price-cell">${r.price_special!=null?parseFloat(r.price_special).toFixed(2)+' zł '+disc:'—'}</td>
+      <td style="${ac}">${r.availability??'—'}</td>
+      <td style="color:var(--muted)">${date}</td>
+    </tr>`;
+  });
+  html+='</tbody></table>';
+  document.getElementById('tableWrap').innerHTML=html;
+}
+
+function changeSort(col){
+  if(sortCol===col)sortDir=sortDir==='asc'?'desc':'asc';
+  else{sortCol=col;sortDir='asc';}
+  loadProducts();
+}
+function resetFilters(){
+  ['filterSearch','filterCategory','filterStore','filterAvailability','filterMinPrice','filterMaxPrice']
+    .forEach(id=>document.getElementById(id).value='');
+  sortCol='id';sortDir='asc';
+  loadProducts();
+}
+
+
+//  TAB 2 — PRICE COMPARISON
+
+async function loadComparisonSummary() {
+  const json = await fetch('/api/comparison/summary').then(r=>r.json());
   if (!json.ok) return;
 
-  const s = json.summary;
-  document.getElementById('kpi-total').textContent  = s.total ?? '-';
-  document.getElementById('kpi-avg').textContent    = s.avg_price ? parseFloat(s.avg_price).toFixed(2) + ' zł' : '-';
-  document.getElementById('kpi-stock').textContent  = s.total_stock ?? '-';
+  // Per-shop KPI blocks
+  let html = '';
+  json.data.forEach(shop => {
+    const total    = parseInt(shop.total_mapped)||0;
+    const cheaper  = parseInt(shop.we_cheaper)||0;
+    const expensive= parseInt(shop.we_expensive)||0;
+    const equal    = parseInt(shop.equal)||0;
+    const avg      = shop.avg_diff_abs!=null ? parseFloat(shop.avg_diff_abs) : null;
+    const avgFmt   = avg!=null ? (avg>0?'+':'')+avg.toFixed(2)+' zł' : '—';
+    const avgClass = avg>0?'cheaper':avg<0?'expensive':'equal';
+    html += `
+      <div class="shop-section-label">${shop.shop_label}</div>
+      <div class="cmp-kpi-row">
+        <div class="cmp-kpi"><label>Zmapowane pary</label><div class="val">${total}</div><div class="hint">produktów</div></div>
+        <div class="cmp-kpi"><label>Jesteśmy tańsi</label><div class="val cheaper">${cheaper}</div><div class="hint">produktów</div></div>
+        <div class="cmp-kpi"><label>Jesteśmy drożsi</label><div class="val expensive">${expensive}</div><div class="hint">produktów</div></div>
+        <div class="cmp-kpi"><label>Cena równa</label><div class="val equal">${equal}</div><div class="hint">produktów</div></div>
+        <div class="cmp-kpi"><label>Śr. różnica ceny</label><div class="val ${avgClass}">${avgFmt}</div><div class="hint">+ = my tańsi</div></div>
+      </div>`;
+  });
+  document.getElementById('cmpSummaryWrap').innerHTML = html;
 
-  const cats   = json.by_category.map(r => r.category);
-  const counts = json.by_category.map(r => parseInt(r.count));
-  const prices = json.by_category.map(r => parseFloat(r.avg_price).toFixed(2));
-  const colors = generateColors(cats.length);
+  // chart: cheaper/equal/expensive stacked per shop
+  const shopLabels   = json.data.map(s=>s.shop_label);
+  const cheaperVals  = json.data.map(s=>parseInt(s.we_cheaper)||0);
+  const equalVals    = json.data.map(s=>parseInt(s.equal)||0);
+  const expensVals   = json.data.map(s=>parseInt(s.we_expensive)||0);
 
-  if (chartCat) chartCat.destroy();
-  chartCat = new Chart(document.getElementById('chartCategory'), {
-    type: 'doughnut',
-    data: { labels: cats, datasets: [{ data: counts, backgroundColor: colors, borderWidth: 0 }] },
-    options: {
-      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 16 } } },
-      cutout: '62%'
+  dc('cmpResult');
+  charts.cmpResult = new Chart(document.getElementById('chartCmpResult'),{
+    type:'bar',
+    data:{
+      labels: shopLabels,
+      datasets:[
+        {label:'Tańsi',      data:cheaperVals, backgroundColor:'#4fffb0bb',borderColor:'#4fffb0',borderWidth:1,borderRadius:4},
+        {label:'Równa cena', data:equalVals,   backgroundColor:'#ffe66dbb',borderColor:'#ffe66d',borderWidth:1,borderRadius:4},
+        {label:'Drożsi',     data:expensVals,  backgroundColor:'#ff6b9dbb',borderColor:'#ff6b9d',borderWidth:1,borderRadius:4},
+      ]
+    },
+    options:{
+      plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},
+      scales:{x:{grid:{display:false}},y:{grid:{color:'#1e2535'},ticks:{stepSize:1}}}
     }
   });
 
-  if (chartPrice) chartPrice.destroy();
-  chartPrice = new Chart(document.getElementById('chartPrice'), {
-    type: 'bar',
-    data: {
-      labels: cats,
-      datasets: [{
-        label: 'Śr. cena (zł)',
-        data: prices,
-        backgroundColor: colors.map(c => c + 'bb'),
-        borderColor: colors,
-        borderWidth: 1,
-        borderRadius: 4,
-      }]
+  // chart: avg diff by category, one dataset per shop
+  const allCats = {};
+  json.data.forEach(shop=>{
+    (shop.by_category||[]).forEach(r=>{
+      if(!allCats[r.category])allCats[r.category]={};
+      allCats[r.category][shop.shop_label]=parseFloat(r.avg_diff);
+    });
+  });
+  const catKeys    = Object.keys(allCats);
+  const shopNames  = json.data.map(s=>s.shop_label);
+  const shopColors = ['#00c2ff','#a78bfa'];
+
+  dc('cmpCat');
+  charts.cmpCat = new Chart(document.getElementById('chartCmpCategory'),{
+    type:'bar',
+    data:{
+      labels: catKeys,
+      datasets: shopNames.map((name,i)=>({
+        label: name,
+        data:  catKeys.map(cat=>allCats[cat][name]??null),
+        backgroundColor: shopColors[i]+'bb',
+        borderColor:     shopColors[i],
+        borderWidth:1, borderRadius:4,
+      }))
     },
-    options: {
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false } },
-        y: { grid: { color: '#1e2535' }, ticks: { callback: v => v + ' zł' } }
+    options:{
+      plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},
+      scales:{
+        x:{grid:{display:false}},
+        y:{grid:{color:'#1e2535'},ticks:{callback:v=>(v>0?'+':'')+v+' zł'}}
       }
     }
   });
 }
 
-function generateColors(n) {
-  const palette = ['#4fffb0','#00c2ff','#ff6b9d','#ffe66d','#a78bfa','#fb923c','#34d399','#f472b6'];
-  return Array.from({ length: n }, (_, i) => palette[i % palette.length]);
+async function loadComparison() {
+  const p = new URLSearchParams();
+  const shop = document.getElementById('cmpFilterShop').value;
+  const cat  = document.getElementById('cmpFilterCategory').value;
+  const diff = document.getElementById('cmpFilterDiff').value;
+  if (shop) p.set('shop', shop);
+  if (cat)  p.set('category', cat);
+  if (diff) p.set('diff', diff);
+
+  document.getElementById('cmpTableWrap').innerHTML='<div class="spinner">Ładowanie…</div>';
+  const json = await fetch('/api/comparison?'+p).then(r=>r.json());
+  if (!json.ok){document.getElementById('cmpTableWrap').innerHTML=`<p class="no-data">Błąd: ${json.error}</p>`;return;}
+  cmpData = json.data;
+  renderCmpTable(cmpData);
 }
 
-// categories dropdown
-async function loadCategories() {
-  const r    = await fetch('/api/categories');
-  const json = await r.json();
-  if (!json.ok) return;
-  const sel = document.getElementById('filterCategory');
-  json.data.forEach(cat => {
-    const opt = document.createElement('option');
-    opt.value = cat; opt.textContent = cat;
-    sel.appendChild(opt);
-  });
-}
-
-// products table
-async function loadProducts() {
-  const cat      = document.getElementById('filterCategory').value;
-  const minPrice = document.getElementById('filterMinPrice').value;
-  const maxPrice = document.getElementById('filterMaxPrice').value;
-  const params   = new URLSearchParams({ sort: sortCol, order: sortDir });
-  if (cat)      params.set('category', cat);
-  if (minPrice) params.set('min_price', minPrice);
-  if (maxPrice) params.set('max_price', maxPrice);
-
-  document.getElementById('tableWrap').innerHTML = '<div class="spinner">Ładowanie…</div>';
-  const r    = await fetch('/api/products?' + params);
-  const json = await r.json();
-
-  if (!json.ok) {
-    document.getElementById('tableWrap').innerHTML = `<p class="no-data">Błąd: ${json.error}</p>`;
+function renderCmpTable(rows) {
+  document.getElementById('cmpCount').textContent = rows.length ? rows.length+' par' : '';
+  if (!rows.length){
+    document.getElementById('cmpTableWrap').innerHTML='<p class="no-data">Brak zmapowanych produktów dla wybranych filtrów.</p>';
     return;
   }
-  renderTable(json.data);
-}
 
-function renderTable(rows) {
-  if (!rows.length) {
-    document.getElementById('tableWrap').innerHTML = '<p class="no-data">Brak wyników dla wybranych filtrów.</p>';
-    return;
-  }
-  const cols = [
-    { key: 'id',         label: 'ID' },
-    { key: 'name',       label: 'Nazwa' },
-    { key: 'category',   label: 'Kategoria' },
-    { key: 'price',      label: 'Cena' },
-    { key: 'stock',      label: 'Stan mag.' },
-    { key: 'created_at', label: 'Data dodania' },
+  const maxDiff = Math.max(...rows.map(r=>Math.abs(parseFloat(r.diff_abs)||0)), 1);
+  const cols=[
+    {key:'sku',            label:'SKU'},
+    {key:'our_name',       label:'Nasz produkt'},
+    {key:'category',       label:'Kategoria'},
+    {key:'our_effective',  label:'Nasza cena'},
+    {key:'shop_label',     label:'Sklep'},
+    {key:'comp_name',      label:'Produkt konkurenta'},
+    {key:'comp_effective', label:'Cena konkurenta'},
+    {key:'diff_abs',       label:'Różnica (zł)'},
+    {key:'diff_pct',       label:'Różnica (%)'},
   ];
 
-  let html = '<table><thead><tr>';
-  cols.forEach(c => {
-    const icon = sortCol === c.key ? (sortDir === 'asc' ? '▲' : '▼') : '⇅';
-    html += `<th onclick="changeSort('${c.key}')">${c.label} <span class="sort-icon">${icon}</span></th>`;
+  let html='<table><thead><tr>';
+  cols.forEach(c=>{
+    const icon=cmpSortCol===c.key?(cmpSortDir==='asc'?'▲':'▼'):'⇅';
+    html+=`<th onclick="changeCmpSort('${c.key}')">${c.label} <span class="sort-icon">${icon}</span></th>`;
   });
-  html += '</tr></thead><tbody>';
+  html+='</tr></thead><tbody>';
 
-  rows.forEach(r => {
-    const date  = r.created_at ? new Date(r.created_at).toLocaleDateString('pl') : '—';
-    const stock = parseInt(r.stock);
-    html += `<tr>
-      <td style="color:var(--muted)">#${r.id}</td>
-      <td>${r.name}</td>
-      <td><span class="badge">${r.category}</span></td>
-      <td class="price-cell">${parseFloat(r.price).toFixed(2)} zł</td>
-      <td>${stock}</td>
-      <td style="color:var(--muted)">${date}</td>
+  rows.forEach(r=>{
+    const dAbs = parseFloat(r.diff_abs)||0;
+    const dPct = parseFloat(r.diff_pct)||0;
+    const dc_  = dAbs>0?'diff-pos':dAbs<0?'diff-neg':'diff-zero';
+    const dLbl = dAbs>0?`+${dAbs.toFixed(2)} zł`:dAbs<0?`${dAbs.toFixed(2)} zł`:'0.00 zł';
+    const pLbl = dAbs>0?`+${dPct.toFixed(1)}%`:dAbs<0?`${dPct.toFixed(1)}%`:'0%';
+    const tip  = dAbs>0?'Jesteśmy tańsi':dAbs<0?'Jesteśmy drożsi':'Cena równa';
+    const bCol = dAbs>0?'#4fffb0':'#ff6b9d';
+    const bW   = Math.round(Math.abs(dAbs)/maxDiff*100);
+    const sClass = r.shop_table==='products_shop1'?'badge-shop1':'badge-shop2';
+    const link = r.comp_url
+      ?`<a href="${r.comp_url}" target="_blank" style="color:var(--muted);font-size:.75rem;margin-left:4px" title="Otwórz stronę produktu">↗</a>`:'';
+
+    html+=`<tr title="${tip}">
+      <td style="font-size:.72rem;color:var(--muted)">${r.sku??'—'}</td>
+      <td>${r.our_name??'—'}</td>
+      <td><span class="badge">${r.category??'—'}</span></td>
+      <td class="price-cell price-our">${fmt(r.our_effective)}</td>
+      <td><span class="badge ${sClass}">${r.shop_label}</span></td>
+      <td>${r.comp_name??'—'}${link}</td>
+      <td class="price-cell price-comp">${fmt(r.comp_effective)}</td>
+      <td class="${dc_}">
+        <div class="bar-wrap">
+          <span style="min-width:76px">${dLbl}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${bW}%;background:${bCol}"></div></div>
+        </div>
+      </td>
+      <td class="${dc_}">${pLbl}</td>
     </tr>`;
   });
-
-  html += '</tbody></table>';
-  document.getElementById('tableWrap').innerHTML = html;
+  html+='</tbody></table>';
+  document.getElementById('cmpTableWrap').innerHTML=html;
 }
 
-function changeSort(col) {
-  if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
-  else { sortCol = col; sortDir = 'asc'; }
-  loadProducts();
+function changeCmpSort(col) {
+  if(cmpSortCol===col)cmpSortDir=cmpSortDir==='asc'?'desc':'asc';
+  else{cmpSortCol=col;cmpSortDir=col==='diff_abs'?'desc':'asc';}
+  const sorted=[...cmpData].sort((a,b)=>{
+    let va=a[col]??'', vb=b[col]??'';
+    if(!isNaN(parseFloat(va))&&!isNaN(parseFloat(vb))){va=parseFloat(va);vb=parseFloat(vb);}
+    return cmpSortDir==='asc'?(va<vb?-1:va>vb?1:0):(va>vb?-1:va<vb?1:0);
+  });
+  renderCmpTable(sorted);
 }
 
-function resetFilters() {
-  document.getElementById('filterCategory').value = '';
-  document.getElementById('filterMinPrice').value = '';
-  document.getElementById('filterMaxPrice').value = '';
-  sortCol = 'id'; sortDir = 'asc';
-  loadProducts();
+function resetCmpFilters(){
+  ['cmpFilterShop','cmpFilterCategory','cmpFilterDiff'].forEach(id=>document.getElementById(id).value='');
+  cmpSortCol='diff_abs';cmpSortDir='desc';
+  loadComparison();
 }
 
-//init
+//  INIT
 loadStats();
-loadCategories();
+loadDropdowns();
 loadProducts();
 </script>
 </body>
