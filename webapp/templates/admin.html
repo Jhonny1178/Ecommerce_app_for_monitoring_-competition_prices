@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin – Panel Analityczny</title>
+<link rel="stylesheet" href="../static/admin.css">
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">Analityka</div>
+  <div class="nav-sub">Panel zarządzania</div>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/admin" class="active">Admin</a>
+  <div class="nav-spacer"></div>
+  <div class="nav-user">
+    <strong>{{ username }}</strong>
+    <span style="color:var(--accent);font-size:.68rem;">ADMIN</span>
+    <br><br>
+    <a href="/logout" style="color:var(--error)">Wyloguj →</a>
+  </div>
+</nav>
+
+<main>
+  <h1>Panel administratora</h1>
+  <p class="page-sub">Dodawaj, edytuj i usuwaj produkty w bazie danych</p>
+
+  <div class="admin-grid">
+
+    <!-- FORM -->
+    <div class="form-card">
+      <span class="mode-label mode-add" id="modeLabel">Nowy produkt</span>
+      <h2 id="formTitle">Dodaj produkt</h2>
+      <input type="hidden" id="editId">
+
+      <label>Nazwa produktu</label>
+      <input type="text" id="fName" placeholder="np. Materac 200x80">
+
+      <label>Kategoria</label>
+      <input type="text" id="fCategory" placeholder="np. Akcesoria">
+
+      <label>Cena (zł)</label>
+      <input type="number" id="fPrice" placeholder="0.00" step="0.01" min="0">
+
+      <label>Stan magazynowy (szt.)</label>
+      <input type="number" id="fStock" placeholder="0" min="0">
+
+      <div class="btn-row">
+        <button class="btn" onclick="submitForm()">Zapisz</button>
+        <button class="btn-ghost" onclick="resetForm()">Anuluj</button>
+      </div>
+    </div>
+
+    <!-- TABLE -->
+    <div class="table-card">
+      <div class="table-header">
+        <h2>Produkty</h2>
+        <input class="search-box" id="search" type="text" placeholder="Szukaj…" oninput="filterTable()">
+      </div>
+      <div id="tableWrap"><div class="spinner">Ładowanie…</div></div>
+    </div>
+
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let allProducts = [];
+
+async function loadProducts() {
+  const r    = await fetch('/api/products?sort=id&order=desc');
+  const json = await r.json();
+  if (!json.ok) { showToast('Błąd ładowania: ' + json.error, 'err'); return; }
+  allProducts = json.data;
+  filterTable();
+}
+
+function filterTable() {
+  const q    = document.getElementById('search').value.toLowerCase();
+  const rows = q ? allProducts.filter(p =>
+    p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
+  ) : allProducts;
+  renderTable(rows);
+}
+
+function renderTable(rows) {
+  if (!rows.length) {
+    document.getElementById('tableWrap').innerHTML = '<p style="text-align:center;color:var(--muted);padding:32px">Brak wyników.</p>';
+    return;
+  }
+  let html = `<table><thead><tr>
+    <th>ID</th><th>Nazwa</th><th>Kategoria</th><th>Cena</th><th>Stan</th><th>Akcje</th>
+  </tr></thead><tbody>`;
+  rows.forEach(p => {
+    html += `<tr id="row-${p.id}">
+      <td style="color:var(--muted)">#${p.id}</td>
+      <td>${p.name}</td>
+      <td><span class="badge">${p.category}</span></td>
+      <td class="price-cell">${parseFloat(p.price).toFixed(2)} zł</td>
+      <td>${p.stock}</td>
+      <td>
+        <button class="action-btn" onclick="editProduct(${p.id})">Edytuj</button>
+        <button class="action-btn del" onclick="deleteProduct(${p.id}, '${p.name.replace(/'/g,"\\'")}')">Usuń</button>
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('tableWrap').innerHTML = html;
+}
+
+function editProduct(id) {
+  const p = allProducts.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('editId').value    = p.id;
+  document.getElementById('fName').value     = p.name;
+  document.getElementById('fCategory').value = p.category;
+  document.getElementById('fPrice').value    = parseFloat(p.price).toFixed(2);
+  document.getElementById('fStock').value    = p.stock;
+  document.getElementById('formTitle').textContent = 'Edytuj produkt';
+  document.getElementById('modeLabel').textContent = '✏Edycja';
+  document.getElementById('modeLabel').className   = 'mode-label mode-edit';
+  document.querySelectorAll('.editing-row').forEach(r => r.classList.remove('editing-row'));
+  const row = document.getElementById('row-' + id);
+  if (row) row.classList.add('editing-row');
+}
+
+function resetForm() {
+  document.getElementById('editId').value    = '';
+  document.getElementById('fName').value     = '';
+  document.getElementById('fCategory').value = '';
+  document.getElementById('fPrice').value    = '';
+  document.getElementById('fStock').value    = '';
+  document.getElementById('formTitle').textContent = 'Dodaj produkt';
+  document.getElementById('modeLabel').textContent = 'Nowy produkt';
+  document.getElementById('modeLabel').className   = 'mode-label mode-add';
+  document.querySelectorAll('.editing-row').forEach(r => r.classList.remove('editing-row'));
+}
+
+async function submitForm() {
+  const id       = document.getElementById('editId').value;
+  const name     = document.getElementById('fName').value.trim();
+  const category = document.getElementById('fCategory').value.trim();
+  const price    = document.getElementById('fPrice').value;
+  const stock    = document.getElementById('fStock').value;
+
+  if (!name || !category || price === '' || stock === '') {
+    showToast('Wypełnij wszystkie pola.', 'err'); return;
+  }
+  const payload = { name, category, price, stock };
+
+  try {
+    let url    = '/api/admin/product';
+    let method = 'POST';
+    if (id) { url += '/' + id; method = 'PUT'; }
+    const r    = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const json = await r.json();
+    if (json.ok) {
+      showToast(id ? 'Produkt zaktualizowany ✓' : 'Produkt dodany ✓', 'ok');
+      resetForm(); loadProducts();
+    } else {
+      showToast('Błąd: ' + json.error, 'err');
+    }
+  } catch(e) { showToast('Błąd sieci: ' + e, 'err'); }
+}
+
+async function deleteProduct(id, name) {
+  if (!confirm(`Usunąć produkt „${name}"?`)) return;
+  try {
+    const r    = await fetch('/api/admin/product/' + id, { method: 'DELETE' });
+    const json = await r.json();
+    if (json.ok) { showToast('Usunięto ✓', 'ok'); loadProducts(); }
+    else showToast('Błąd: ' + json.error, 'err');
+  } catch(e) { showToast('Błąd sieci: ' + e, 'err'); }
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+loadProducts();
+</script>
+</body>
+</html>

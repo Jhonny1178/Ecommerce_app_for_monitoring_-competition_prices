@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard – Panel Analityczny</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="../static/dashboard.css">
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">Analityka</div>
+  <div class="nav-sub">Panel zarządzania</div>
+  <a href="/dashboard" class="active"> Dashboard</a>
+  {% if is_admin %}
+  <a href="/admin">Admin</a>
+  {% endif %}
+  <div class="nav-spacer"></div>
+  <div class="nav-user">
+    <strong>{{ username }}</strong>
+    {% if is_admin %}<span style="color:var(--accent);font-size:.68rem;">ADMIN</span>{% endif %}
+    <br><br>
+    <a href="/logout" style="color:var(--error)">Wyloguj →</a>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<main>
+  <h1>Dashboard analityczny</h1>
+  <p class="page-sub">Przegląd produktów w bazie danych · dane na żywo z PostgreSQL</p>
+
+  <!-- KPI -->
+  <div class="kpi-row">
+    <div class="kpi">
+      <label>Produkty łącznie</label>
+      <div class="val" id="kpi-total">—</div>
+      <div class="kpi-hint">unikalnych SKU</div>
+    </div>
+    <div class="kpi">
+      <label>Średnia cena</label>
+      <div class="val" id="kpi-avg">—</div>
+      <div class="kpi-hint">zł brutto</div>
+    </div>
+    <div class="kpi">
+      <label>Stan magazynowy</label>
+      <div class="val" id="kpi-stock">—</div>
+      <div class="kpi-hint">sztuk łącznie</div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <h2>Produkty wg kategorii</h2>
+      <canvas id="chartCategory" height="220"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Średnia cena wg kategorii</h2>
+      <canvas id="chartPrice" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-card">
+    <div class="table-header">
+      <h2>Tabela produktów</h2>
+      <div class="filters">
+        <select id="filterCategory">
+          <option value="">Wszystkie kategorie</option>
+        </select>
+        <input id="filterMinPrice" type="number" placeholder="Cena min" style="width:100px">
+        <input id="filterMaxPrice" type="number" placeholder="Cena max" style="width:100px">
+        <button class="btn" onclick="loadProducts()">Filtruj</button>
+        <button class="btn-ghost" onclick="resetFilters()">Resetuj</button>
+      </div>
+    </div>
+    <div id="tableWrap">
+      <div class="spinner">Ładowanie danych…</div>
+    </div>
+  </div>
+</main>
+
+<script>
+const ACCENT  = '#4fffb0';
+const ACCENT2 = '#00c2ff';
+const MUTED   = '#5a6478';
+const BG      = '#0b0e14';
+
+Chart.defaults.color = MUTED;
+Chart.defaults.borderColor = '#1e2535';
+Chart.defaults.font.family = "'DM Mono', monospace";
+
+let sortCol = 'id', sortDir = 'asc';
+let chartCat, chartPrice;
+
+// stats
+  async function loadStats() {
+  const r    = await fetch('/api/stats');
+  const json = await r.json();
+  if (!json.ok) return;
+
+  const s = json.summary;
+  document.getElementById('kpi-total').textContent  = s.total ?? '-';
+  document.getElementById('kpi-avg').textContent    = s.avg_price ? parseFloat(s.avg_price).toFixed(2) + ' zł' : '-';
+  document.getElementById('kpi-stock').textContent  = s.total_stock ?? '-';
+
+  const cats   = json.by_category.map(r => r.category);
+  const counts = json.by_category.map(r => parseInt(r.count));
+  const prices = json.by_category.map(r => parseFloat(r.avg_price).toFixed(2));
+  const colors = generateColors(cats.length);
+
+  if (chartCat) chartCat.destroy();
+  chartCat = new Chart(document.getElementById('chartCategory'), {
+    type: 'doughnut',
+    data: { labels: cats, datasets: [{ data: counts, backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 16 } } },
+      cutout: '62%'
+    }
+  });
+
+  if (chartPrice) chartPrice.destroy();
+  chartPrice = new Chart(document.getElementById('chartPrice'), {
+    type: 'bar',
+    data: {
+      labels: cats,
+      datasets: [{
+        label: 'Śr. cena (zł)',
+        data: prices,
+        backgroundColor: colors.map(c => c + 'bb'),
+        borderColor: colors,
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: '#1e2535' }, ticks: { callback: v => v + ' zł' } }
+      }
+    }
+  });
+}
+
+function generateColors(n) {
+  const palette = ['#4fffb0','#00c2ff','#ff6b9d','#ffe66d','#a78bfa','#fb923c','#34d399','#f472b6'];
+  return Array.from({ length: n }, (_, i) => palette[i % palette.length]);
+}
+
+// categories dropdown
+async function loadCategories() {
+  const r    = await fetch('/api/categories');
+  const json = await r.json();
+  if (!json.ok) return;
+  const sel = document.getElementById('filterCategory');
+  json.data.forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat; opt.textContent = cat;
+    sel.appendChild(opt);
+  });
+}
+
+// products table
+async function loadProducts() {
+  const cat      = document.getElementById('filterCategory').value;
+  const minPrice = document.getElementById('filterMinPrice').value;
+  const maxPrice = document.getElementById('filterMaxPrice').value;
+  const params   = new URLSearchParams({ sort: sortCol, order: sortDir });
+  if (cat)      params.set('category', cat);
+  if (minPrice) params.set('min_price', minPrice);
+  if (maxPrice) params.set('max_price', maxPrice);
+
+  document.getElementById('tableWrap').innerHTML = '<div class="spinner">Ładowanie…</div>';
+  const r    = await fetch('/api/products?' + params);
+  const json = await r.json();
+
+  if (!json.ok) {
+    document.getElementById('tableWrap').innerHTML = `<p class="no-data">Błąd: ${json.error}</p>`;
+    return;
+  }
+  renderTable(json.data);
+}
+
+function renderTable(rows) {
+  if (!rows.length) {
+    document.getElementById('tableWrap').innerHTML = '<p class="no-data">Brak wyników dla wybranych filtrów.</p>';
+    return;
+  }
+  const cols = [
+    { key: 'id',         label: 'ID' },
+    { key: 'name',       label: 'Nazwa' },
+    { key: 'category',   label: 'Kategoria' },
+    { key: 'price',      label: 'Cena' },
+    { key: 'stock',      label: 'Stan mag.' },
+    { key: 'created_at', label: 'Data dodania' },
+  ];
+
+  let html = '<table><thead><tr>';
+  cols.forEach(c => {
+    const icon = sortCol === c.key ? (sortDir === 'asc' ? '▲' : '▼') : '⇅';
+    html += `<th onclick="changeSort('${c.key}')">${c.label} <span class="sort-icon">${icon}</span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(r => {
+    const date  = r.created_at ? new Date(r.created_at).toLocaleDateString('pl') : '—';
+    const stock = parseInt(r.stock);
+    html += `<tr>
+      <td style="color:var(--muted)">#${r.id}</td>
+      <td>${r.name}</td>
+      <td><span class="badge">${r.category}</span></td>
+      <td class="price-cell">${parseFloat(r.price).toFixed(2)} zł</td>
+      <td>${stock}</td>
+      <td style="color:var(--muted)">${date}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('tableWrap').innerHTML = html;
+}
+
+function changeSort(col) {
+  if (sortCol === col) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
+  else { sortCol = col; sortDir = 'asc'; }
+  loadProducts();
+}
+
+function resetFilters() {
+  document.getElementById('filterCategory').value = '';
+  document.getElementById('filterMinPrice').value = '';
+  document.getElementById('filterMaxPrice').value = '';
+  sortCol = 'id'; sortDir = 'asc';
+  loadProducts();
+}
+
+//init
+loadStats();
+loadCategories();
+loadProducts();
+</script>
+</body>
+</html>
