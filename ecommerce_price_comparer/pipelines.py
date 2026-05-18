@@ -45,7 +45,7 @@ class SaveToPostgresSQLPipeline:
         self.cur.execute("""
             CREATE TABLE IF NOT EXISTS productsone (
             id SERIAL PRIMARY KEY,
-            sku VARCHAR(100) UNIQUE,
+            sku TEXT UNIQUE,
             name TEXT,
             size VARCHAR(20),
             color VARCHAR(30),

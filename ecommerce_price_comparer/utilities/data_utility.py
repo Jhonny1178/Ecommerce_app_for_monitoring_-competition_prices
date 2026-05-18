@@ -23,6 +23,7 @@ size_map = {
     'średnia': 'M',
     'duża': 'L',
     'pokrowiec tradycyjny': 'uniwersalny',
+    'one size' : 'uniwersalny',
 }
 class DataCleaner:
     @staticmethod
@@ -106,6 +107,8 @@ class DataCleaner:
         if not size:
             return None
         size_str = str(size).strip().lower()
+        if '+' in size_str:
+            size_str = size_str.split('+')[0].strip()
         if '⌀' in size_str or 'śr.' in size_str:
             match = re.search(r'(\d+)', size_str)
             if match:
@@ -121,3 +124,16 @@ class DataCleaner:
             return None
         description = re.sub(r'\s+', ' ', description)
         return description.strip()
+
+    @staticmethod
+    def clean_category(category_str):
+        if not category_str:
+            return None
+        category_str = str(category_str).replace('&gt;', '>')
+        parts = [part.strip() for part in category_str.split('>')]
+        if len(parts) >= 2:
+            return parts[1]
+        elif len(parts) == 1:
+            return parts[0]
+
+        return None
