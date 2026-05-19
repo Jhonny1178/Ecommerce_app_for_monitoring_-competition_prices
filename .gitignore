@@ -18,3 +18,4 @@ ENV/
 data/
 models/
 __pycache__/
+airflow/logs/
