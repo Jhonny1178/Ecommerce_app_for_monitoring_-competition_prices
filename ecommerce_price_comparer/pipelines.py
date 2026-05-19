@@ -5,7 +5,6 @@ import os
 from dotenv import load_dotenv
 from utilities.data_utility import DataCleaner
 load_dotenv()
-db_password = os.getenv("DB_PASSWORD")
 class EcommercePriceComparerPipeline:
     def __init__(self):
         self.to_lowercase_list = ['color','category','availability','manufacturer','name','size']
@@ -37,10 +36,10 @@ class EcommercePriceComparerPipeline:
 class SaveToPostgresSQLPipeline:
     def __init__(self):
         self.conn = psycopg2.connect(
-            host='host.docker.internal',
-            user='postgres',
-            password=db_password,
-            database="ecommerce_data",
+            host=os.getenv("DB_HOST"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            database=os.getenv("DB_NAME"),
         )
         self.cur = self.conn.cursor()
         self.items_buffer = []
