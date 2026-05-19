@@ -10,8 +10,6 @@ from datetime import datetime
 from ecommerce_price_comparer.utilities.data_utility import DataCleaner
 from ecommerce_price_comparer.items import ProductData
 load_dotenv()
-db_password = os.getenv("DB_PASSWORD")
-
 
 class DataExtractor:
     def __init__(self, config: dict):
@@ -103,10 +101,10 @@ class DataLoader:
     def __init__(self, table_name: str):
         self.table_name = table_name
         self.conn = psycopg2.connect(
-            host='localhost', #host.docker.internal jesli odpalane przez dockera
-            user='postgres',
-            password=db_password,
-            database="ecommerce_data",
+            host= os.getenv("DB_HOST"),
+            user= os.getenv("DB_USER"),
+            password = os.getenv("DB_PASSWORD"),
+            database = os.getenv("DB_NAME"),
         )
         self.cur = self.conn.cursor()
         self._create_table()
