@@ -1,5 +1,6 @@
 from itemadapter import ItemAdapter
 import psycopg2
+import psycopg2.extras
 import os
 from dotenv import load_dotenv
 from utilities.data_utility import DataCleaner
@@ -42,72 +43,138 @@ class SaveToPostgresSQLPipeline:
             database="ecommerce_data",
         )
         self.cur = self.conn.cursor()
-        self.cur.execute("""
-            CREATE TABLE IF NOT EXISTS productsone (
-            id SERIAL PRIMARY KEY,
-            sku TEXT UNIQUE,
-            name TEXT,
-            size VARCHAR(20),
-            color VARCHAR(30),
-            manufacturer VARCHAR(50),
-            category VARCHAR(50),
-            price_normal FLOAT,
-            price_special FLOAT,
-            store VARCHAR(30),
-            availability VARCHAR(20),
-            date_of_download TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            url TEXT,
-            image TEXT,
-            description TEXT
-            );
-        """
-        )
-        self.conn.commit()
-        print("Table crated")
+        self.items_buffer = []
+        self.batch_size = 100
+
+    def open_spider(self, spider):
+        self.table_name = getattr(spider, 'target_table', 'default_competitors')
+        self.history_table_name = f"{self.table_name}_history"
+
+        spider.logger.info(
+            f"[PIPELINE] Uruchomiono zrzut do tabeli: {self.table_name} oraz historii: {self.history_table_name}")
+
+        try:
+            # Pakujemy tworzenie struktur w jeden try/except
+            self.cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {self.table_name} (
+                    id SERIAL PRIMARY KEY,
+                    sku TEXT UNIQUE,
+                    name TEXT,
+                    size VARCHAR(50),
+                    color VARCHAR(50),
+                    manufacturer VARCHAR(50),
+                    category VARCHAR(100),
+                    price_normal FLOAT,
+                    price_special FLOAT,
+                    store VARCHAR(50),
+                    availability VARCHAR(50),
+                    date_of_download TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    url TEXT,
+                    image TEXT,
+                    description TEXT
+                );
+            """)
+
+            self.cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {self.history_table_name} (
+                    id SERIAL PRIMARY KEY,
+                    sku TEXT,
+                    store VARCHAR(50),
+                    price_normal_old FLOAT,
+                    price_normal_new FLOAT,
+                    price_special_old FLOAT,
+                    price_special_new FLOAT,
+                    valid_from TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    valid_to TIMESTAMP,
+                    is_current BOOLEAN DEFAULT TRUE
+                );
+            """)
+
+            self.cur.execute("""
+                CREATE OR REPLACE FUNCTION log_price_changes()
+                RETURNS TRIGGER AS $$
+                DECLARE
+                    history_table TEXT := TG_ARGV[0];
+                    query TEXT;
+                BEGIN
+                    IF (OLD.price_normal IS DISTINCT FROM NEW.price_normal) OR 
+                       (OLD.price_special IS DISTINCT FROM NEW.price_special) THEN
+                        query := format('UPDATE %I SET valid_to = CURRENT_TIMESTAMP, is_current = FALSE WHERE sku = $1 AND store = $2 AND is_current = TRUE', history_table);
+                        EXECUTE query USING OLD.sku, OLD.store;
+                        query := format('INSERT INTO %I (sku, store, price_normal_old, price_normal_new, price_special_old, price_special_new, valid_from, is_current) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, TRUE)', history_table);
+                        EXECUTE query USING OLD.sku, OLD.store, OLD.price_normal, NEW.price_normal, OLD.price_special, NEW.price_special;
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+            """)
+
+            self.cur.execute(f"DROP TRIGGER IF EXISTS trigger_price_history ON {self.table_name};")
+            self.cur.execute(f"""
+                CREATE TRIGGER trigger_price_history
+                AFTER UPDATE ON {self.table_name}
+                FOR EACH ROW
+                EXECUTE FUNCTION log_price_changes('{self.history_table_name}');
+            """)
+            self.conn.commit()
+
+        except psycopg2.errors.UniqueViolation:
+            # Jeśli inny pająk właśnie założył tabelę mikrosekundę wcześniej, wycofujemy minitransakcję i lecimy dalej
+            self.conn.rollback()
+            spider.logger.info(f"[PIPELINE] Tabela {self.table_name} została już utworzona przez inny proces.")
 
     def process_item(self, item, spider):
-        try:
-            self.cur.execute("""
-            insert into productsone (
-            sku,
-            name,
-            size,
-            color,
-            manufacturer,
-            category,
-            price_normal,
-            price_special,
-            store,
-            availability,
-            date_of_download,
-            url,
-            image,
-            description
-            ) values (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s
+
+        # Krotka musi idealnie pasować do kolejności kolumn w zapytaniu INSERT
+        tuple_data = (
+            item.get('sku'), item.get('name'), item.get('size'),
+            item.get('color'), item.get('manufacturer'), item.get('category'),
+            item.get('price_normal'), item.get('price_special'), item.get('store'),
+            item.get('availability'), item.get('date_of_download'),
+            item.get('url'), item.get('image'), item.get('description')
+        )
+
+        if item.get('sku'):
+            self.items_buffer.append(tuple_data)
+
+        # Gdy bufor ma >= 100 sztuk, ładujemy paczkę do bazy
+        if len(self.items_buffer) >= self.batch_size:
+            self._flush_buffer(spider)
+
+        return item
+
+    def _flush_buffer(self, spider):
+        if not self.items_buffer:
+            return
+
+        # Używamy UPSERT: Wstawiamy nowy produkt LUB aktualizujemy jeśli SKU już istnieje.
+        # Właśnie ta aktualizacja (UPDATE) uruchomi naszego Triggera historycznego!
+        query = f"""
+            INSERT INTO {self.table_name} (
+                sku, name, size, color, manufacturer, category, 
+                price_normal, price_special, store, availability, 
+                date_of_download, url, image, description
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
-            """, (
-                item['sku'],
-                item['name'],
-                item['size'],
-                item['color'],
-                item['manufacturer'],
-                item['category'],
-                item['price_normal'],
-                item['price_special'],
-                item['store'],
-                item['availability'],
-                item['date_of_download'],
-                item['url'],
-                item['image'],
-                item['description']
-            ))
+            ON CONFLICT (sku) DO UPDATE SET
+                price_normal = EXCLUDED.price_normal,
+                price_special = EXCLUDED.price_special,
+                availability = EXCLUDED.availability,
+                date_of_download = EXCLUDED.date_of_download;
+        """
+        try:
+            psycopg2.extras.execute_batch(self.cur, query, self.items_buffer)
             self.conn.commit()
+            spider.logger.debug(f"[DATABASE] Wrzucono paczkę: {len(self.items_buffer)} produktów.")
         except Exception as e:
             self.conn.rollback()
-            spider.logger.error(f"Bład zapisu do bazy pod tytułem: {e}")
-        return item
+            spider.logger.error(f"[DATABASE ERROR] Błąd zapisu paczki: {e}")
+        finally:
+            self.items_buffer.clear()
+
     def close_spider(self, spider):
+        self._flush_buffer(spider)
         self.cur.close()
         self.conn.close()
 
