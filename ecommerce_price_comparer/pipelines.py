@@ -36,19 +36,19 @@ class EcommercePriceComparerPipeline:
 class SaveToPostgresSQLPipeline:
     def __init__(self):
         self.conn = psycopg2.connect(
-            host=os.getenv("DB_HOST"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            database=os.getenv("DB_NAME"),
+            host=os.getenv("APP_DB_HOST"),
+            user=os.getenv("APP_DB_USER"),
+            password=os.getenv("APP_DB_PASSWORD"),
+            database=os.getenv("APP_DB_NAME"),
         )
         self.cur = self.conn.cursor()
         self.items_buffer = []
         self.batch_size = 100
 
     def open_spider(self, spider):
-        self.table_name = getattr(spider, 'target_table', 'default_competitors')
-        self.history_table_name = f"{self.table_name}_history"
-
+        prefix = getattr(spider, 'store_prefix', 'default')
+        self.table_name = f"{prefix}_competitors"
+        self.history_table_name = f"{prefix}_competitors_history"
         spider.logger.info(
             f"[PIPELINE] Uruchomiono zrzut do tabeli: {self.table_name} oraz historii: {self.history_table_name}")
 
@@ -57,7 +57,7 @@ class SaveToPostgresSQLPipeline:
             self.cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS {self.table_name} (
                     id SERIAL PRIMARY KEY,
-                    sku TEXT UNIQUE,
+                    sku TEXT,
                     name TEXT,
                     size VARCHAR(50),
                     color VARCHAR(50),
@@ -70,7 +70,8 @@ class SaveToPostgresSQLPipeline:
                     date_of_download TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     url TEXT,
                     image TEXT,
-                    description TEXT
+                    description TEXT,
+                    UNIQUE (sku, store)
                 );
             """)
 
@@ -156,7 +157,7 @@ class SaveToPostgresSQLPipeline:
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
-            ON CONFLICT (sku) DO UPDATE SET
+            ON CONFLICT (sku,store) DO UPDATE SET
                 price_normal = EXCLUDED.price_normal,
                 price_special = EXCLUDED.price_special,
                 availability = EXCLUDED.availability,
