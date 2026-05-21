@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rejestracja – Panel Analityczny</title>
+<link rel="stylesheet" href="../static/login.css">
+</head>
+<body>
+<div class="glow"></div>
+<div class="card">
+  <div class="logo">Analityka<span>/Panel</span></div>
+  <h1>Zarejestruj się</h1>
+
+  {% if error %}
+  <div class="error-box">{{ error }}</div>
+  {% endif %}
+
+  {% if message %}
+  <div class="error-box" style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;">
+    {{ message }}
+  </div>
+  {% endif %}
+
+  <form method="POST">
+    <label for="store_name">Nazwa Sklepu</label>
+    <input id="store_name" name="store_name" type="text" placeholder="np. OBI, Meble.pl" required>
+
+    <label for="username">Login</label>
+    <input id="username" name="username" type="text" placeholder="wymśl swój login" autocomplete="username" required>
+
+    <label for="password">Hasło</label>
+    <input id="password" name="password" type="password" placeholder="••••••••" autocomplete="new-password" required>
+
+    <button type="submit">Załóż konto i utwórz bazę →</button>
+  </form>
+
+  <div style="margin-top: 25px; text-align: center;">
+    <a href="{{ url_for('login') }}" style="color: #666; text-decoration: none; font-size: 14px; transition: color 0.3s ease;">
+      Masz już konto? <b style="color: #111;">Zaloguj się</b>
+    </a>
+  </div>
+</div>
+</body>
+</html>
