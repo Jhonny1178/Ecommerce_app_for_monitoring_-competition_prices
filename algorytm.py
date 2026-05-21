@@ -1,5 +1,3 @@
-import data
-
 def dopasuj_cene(liczby):
     # obliczanie sredniej arytmetycznej
     srednia = sum(liczby) / len(liczby)
@@ -52,8 +50,3 @@ def ustal_cene(liczby, nasza_cena):
         return round(nowa_cena, 2)
     else:
         return dopasuj_cene(liczby)
-
-
-if __name__ == "__main__":
-    wynik_pelna = ustal_cene(data.lista_rynkowa, data.nasza_cena)
-    print(f"Wynikowa cena: {wynik_pelna}\n")
