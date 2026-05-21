@@ -101,10 +101,10 @@ class DataLoader:
     def __init__(self, table_name: str):
         self.table_name = table_name
         self.conn = psycopg2.connect(
-            host= os.getenv("DB_HOST"),
-            user= os.getenv("DB_USER"),
-            password = os.getenv("DB_PASSWORD"),
-            database = os.getenv("DB_NAME"),
+            host= os.getenv("APP_DB_HOST"),
+            user= os.getenv("APP_DB_USER"),
+            password = os.getenv("APP_DB_PASSWORD"),
+            database = os.getenv("APP_DB_NAME"),
         )
         self.cur = self.conn.cursor()
         self._create_table()
@@ -126,7 +126,8 @@ class DataLoader:
             date_of_download TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             url TEXT,
             image TEXT,
-            description TEXT
+            description TEXT,
+            UNIQUE (sku, store)
             );
         """
         self.cur.execute(query)
@@ -134,31 +135,38 @@ class DataLoader:
         print(f"Baza danych gotowa. Tabela: {self.table_name}")
 
     def load(self, data_stream, batch_size=500):
-        print(f"Rozpoczynam czyszczenie i zapis do tabeli...")
-        batch = []
-        total_processed = 0
+        try:
+            print(f"Rozpoczynam czyszczenie i zapis do tabeli...")
+            batch = []
+            total_processed = 0
 
-        for raw_item in data_stream:
-            cleaned_item = self.apply_data_cleaner(raw_item)
+            for raw_item in data_stream:
+                cleaned_item = self.apply_data_cleaner(raw_item)
 
-            if cleaned_item.get('sku'):
-                tuple_data = (
-                    cleaned_item.get('sku'), cleaned_item.get('name'), cleaned_item.get('size'),
-                    cleaned_item.get('color'), cleaned_item.get('manufacturer'), cleaned_item.get('category'),
-                    cleaned_item.get('price_normal'), cleaned_item.get('price_special'), cleaned_item.get('store'),
-                    cleaned_item.get('availability'), cleaned_item.get('date_of_download'), cleaned_item.get('url'),
-                    cleaned_item.get('image'), cleaned_item.get('description')
-                )
-                batch.append(tuple_data)
-                total_processed += 1
-            if len(batch) >= batch_size:
+                if cleaned_item.get('sku'):
+                    tuple_data = (
+                        cleaned_item.get('sku'), cleaned_item.get('name'), cleaned_item.get('size'),
+                        cleaned_item.get('color'), cleaned_item.get('manufacturer'), cleaned_item.get('category'),
+                        cleaned_item.get('price_normal'), cleaned_item.get('price_special'), cleaned_item.get('store'),
+                        cleaned_item.get('availability'), cleaned_item.get('date_of_download'), cleaned_item.get('url'),
+                        cleaned_item.get('image'), cleaned_item.get('description')
+                    )
+                    batch.append(tuple_data)
+                    total_processed += 1
+                if len(batch) >= batch_size:
+                    self._save_batch(batch)
+                    batch.clear()
+
+            if batch:
                 self._save_batch(batch)
-                batch.clear()
 
-        if batch:
-            self._save_batch(batch)
+            print(f"Zakończono! Zapisano łącznie {total_processed} produktów.")
 
-        print(f"Zakończono! Zapisano łącznie {total_processed} produktów.")
+        finally:
+            # Zawsze zamykaj po zakończeniu pracy
+            self.cur.close()
+            self.conn.close()
+            print("Połączenie z bazą zamknięte poprawnie.")
 
     def apply_data_cleaner(self, raw_item):
         to_lowercase_list = ['color', 'availability', 'manufacturer', 'name', 'size']
@@ -201,7 +209,7 @@ class DataLoader:
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
-            ON CONFLICT (sku) DO UPDATE SET
+            ON CONFLICT (sku,store) DO UPDATE SET
                 price_normal = EXCLUDED.price_normal,
                 price_special = EXCLUDED.price_special,
                 availability = EXCLUDED.availability,
@@ -213,34 +221,3 @@ class DataLoader:
         except Exception as e:
             self.conn.rollback()
             print(f"Błąd zapisu paczki: {e}")
-
-    def __del__(self):
-        if hasattr(self, 'cur') and self.cur:
-            self.cur.close()
-        if hasattr(self, 'conn') and self.conn:
-            self.conn.close()
-
-
-if __name__ == '__main__':
-    job_payload_test = {
-        "store_name": "LuksusSnu_Excel",
-        "table_name": "client_products_final_test",
-        "source_type": "local",
-        "source_path": "test_luksussnu.xlsx",
-        "file_format": "xlsx",
-        "field_mapping": {
-            "SKU_KOD": "sku",
-            "NAZWA_TOWARU": "name",
-            "ROZMIAR_POŚCIELI": "size",
-            "KOLOR_PRODUKTU": "color",
-            "MARKA": "manufacturer",
-            "CENA_KATALOGOWA": "price_normal",
-            "CENA_WYPRZEDAŻ": "price_special",
-            "OPIS_DŁUGI": "description"
-        }
-    }
-
-    extractor = DataExtractor(config=job_payload_test)
-    loader = DataLoader(table_name=job_payload_test['table_name'])
-    raw_stream = extractor.extract()
-    loader.load(raw_stream)

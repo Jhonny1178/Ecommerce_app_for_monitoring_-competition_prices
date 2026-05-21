@@ -10,10 +10,10 @@ from datetime import datetime,timedelta
 from processors.files_connector import MultiTenantReportGenerator
 from processors.data_ingestor import DataExtractor, DataLoader
 DB_CONFIG = {
-    "host":     "host.docker.internal",
-    "user":     "postgres",
-    "password": os.environ.get("DB_PASSWORD"),
-    "database": "ecommerce_data",
+    "host":     os.environ.get("APP_DB_HOST"),
+    "user":     os.environ.get("APP_DB_USER"),
+    "password": os.environ.get("APP_DB_PASSWORD"),
+    "database": os.environ.get("APP_DB_NAME"),
 }
 default_args = {
     'owner': 'Jhonny',
@@ -106,7 +106,8 @@ def build_client_tasks(dag, client: dict):
                 "export PYTHONPATH=$PYTHONPATH:/opt/airflow/dags && "
                 "cd /opt/airflow/dags/ecommerce_price_comparer && "
                 f"scrapy crawl {spider} "
-                f"-a target_table={slug}_competitors"
+                f"-a target_table={slug}_competitors "
+                f"-a store_prefix={slug}"
             ),
             dag=dag,
         )
@@ -139,7 +140,6 @@ with DAG(
     end   = EmptyOperator(task_id="end")
 
     clients = get_active_clients()  # wywołane przy parsowaniu DAG
-
     if not clients:
         # Brak aktywnych klientów — DAG nic nie robi
         start >> end

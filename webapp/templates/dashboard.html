@@ -1,567 +1,1152 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard – Panel Analityczny</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="../static/dashboard.css">
-<style>
-  /* tab system */
-  .tab-bar {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 28px;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 0;
-  }
-  .tab-btn {
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--muted);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: .85rem;
-    padding: 10px 20px;
-    margin-bottom: -1px;
-    transition: color .15s, border-color .15s;
-  }
-  .tab-btn:hover  { color: var(--text); }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard – Panel Analityczny</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="../static/dashboard.css">
+    <style>
+        .tab-bar {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 28px;
+            border-bottom: 1px solid var(--border);
+        }
 
-  /* comparison kpis*/
-  .cmp-kpi-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 14px;
-    margin-bottom: 24px;
-  }
-  .cmp-kpi {
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 18px 20px;
-  }
-  .cmp-kpi label { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; display:block; }
-  .cmp-kpi .val  { font-size: 1.7rem; font-weight: 700; margin: 6px 0 2px; }
-  .cmp-kpi .hint { font-size: .7rem; color: var(--muted); }
-  .val.cheaper   { color: #4fffb0; }
-  .val.expensive { color: #ff6b9d; }
-  .val.equal     { color: #ffe66d; }
+        .tab-btn {
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--muted);
+            cursor: pointer;
+            font-family: inherit;
+            font-size: .85rem;
+            padding: 10px 20px;
+            margin-bottom: -1px;
+            transition: color .15s, border-color .15s;
+        }
 
-  /*comparison filters*/
-  .cmp-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    align-items: center;
-    margin-bottom: 20px;
-  }
-  .cmp-filters select, .cmp-filters input {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    font-family: inherit;
-    font-size: .82rem;
-    padding: 7px 11px;
-  }
+        .tab-btn:hover {
+            color: var(--text);
+        }
 
-  /*  comparison table */
-  .diff-pos  { color: #4fffb0; font-weight: 600; }
-  .diff-neg  { color: #ff6b9d; font-weight: 600; }
-  .diff-zero { color: #ffe66d; }
-  .price-our  { color: var(--accent); }
-  .price-comp { color: var(--muted); }
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
 
-  .badge-shop1 { background: rgba(0,194,255,.15); color: #00c2ff; }
-  .badge-shop2 { background: rgba(167,139,250,.15); color: #a78bfa; }
+        .tab-panel {
+            display: none;
+        }
 
-  .bar-wrap  { display:flex; align-items:center; gap:8px; min-width:130px; }
-  .bar-track { flex:1; height:5px; border-radius:3px; overflow:hidden; }
-  .bar-fill  { height:100%; border-radius:3px; transition: width .3s; }
+        .tab-panel.active {
+            display: block;
+        }
 
-  .shop-section-label {
-    font-size: .8rem;
-    color: var(--muted);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .07em;
-    margin-bottom: 8px;
-  }
-</style>
+        .cmp-kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+
+        .cmp-kpi {
+            background: #e1e1e1;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 18px 20px;
+        }
+
+        .cmp-kpi label {
+            font-size: .68rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            display: block;
+        }
+
+        .cmp-kpi .val {
+            font-size: 1.7rem;
+            font-weight: 700;
+            margin: 6px 0 2px;
+        }
+
+        .cmp-kpi .hint {
+            font-size: .7rem;
+            color: var(--muted);
+        }
+
+        .val.cheaper {
+            color: #4fff78;
+        }
+
+        .val.expensive {
+            color: #d24014;
+        }
+
+        .val.equal {
+            color: #b0b0b0;
+        }
+
+        .cmp-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .cmp-filters select, .cmp-filters input {
+            background: #d0cfcf;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: .82rem;
+            padding: 7px 11px;
+        }
+
+        .diff-pos {
+            color: #4fff78;
+            font-weight: 600;
+        }
+
+        .diff-neg {
+            color: #d24014;
+            font-weight: 600;
+        }
+
+        .diff-zero {
+            color: #b0b0b0;
+        }
+
+        .price-our {
+            color: var(--accent);
+        }
+
+        .price-comp {
+            color: var(--muted);
+        }
+
+        .badge-shop1 {
+            background: rgba(0, 194, 255, .15);
+            color: #00c2ff;
+        }
+
+        .badge-shop2 {
+            background: rgba(167, 139, 250, .15);
+            color: #a78bfa;
+        }
+
+        .bar-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 130px;
+        }
+
+        .bar-track {
+            flex: 1;
+            height: 5px;
+            background: #d0d0d0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width .3s;
+        }
+
+        .shop-section-label {
+            font-size: .8rem;
+            color: var(--muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            margin-bottom: 8px;
+        }
+
+        /* klikalne rzedy */
+        tbody tr.clickable {
+            cursor: pointer;
+        }
+
+        tbody tr.clickable:hover td {
+            background: rgba(79, 255, 176, .04);
+        }
+
+        /* detale produktu */
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .7);
+            z-index: 300;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal-backdrop.open {
+            display: flex;
+        }
+
+        .modal {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            width: min(860px, 100%);
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 36px 40px;
+            position: relative;
+            animation: modalIn .18s ease;
+        }
+
+        @keyframes modalIn {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+            to {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 18px;
+            right: 22px;
+            background: none;
+            border: none;
+            color: var(--muted);
+            font-size: 1.5rem;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text);
+        }
+
+        /* modal layout */
+        .modal-top {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 28px;
+            margin-bottom: 28px;
+        }
+
+        @media (max-width: 600px) {
+            .modal-top {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .modal-img {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: contain;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #cccccc;
+        }
+
+        .modal-img-placeholder {
+            width: 100%;
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3.5rem;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #9e9999;
+            color: var(--border);
+        }
+
+        .modal-info h2 {
+            margin: 0 0 6px;
+            font-size: 1.15rem;
+        }
+
+        .modal-info .modal-sku {
+            color: var(--muted);
+            font-size: .75rem;
+            margin-bottom: 14px;
+        }
+
+        .modal-meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 20px;
+            margin-bottom: 14px;
+        }
+
+        .modal-meta-item label {
+            display: block;
+            font-size: .66rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+
+        .modal-meta-item span {
+            font-size: .88rem;
+        }
+
+        .modal-prices {
+            display: flex;
+            gap: 20px;
+            align-items: baseline;
+            margin-bottom: 14px;
+        }
+
+        .modal-price-normal {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .modal-price-special {
+            font-size: 1.1rem;
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .modal-price-crossed {
+            font-size: .88rem;
+            color: var(--muted);
+            text-decoration: line-through;
+        }
+
+        .modal-desc {
+            font-size: .83rem;
+            color: var(--muted);
+            line-height: 1.6;
+            margin-top: 10px;
+        }
+
+        .modal-link {
+            font-size: .8rem;
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .modal-link:hover {
+            text-decoration: underline;
+        }
+
+        /* porownanie w popupie */
+        .modal-section-title {
+            font-size: .75rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            font-weight: 600;
+            margin: 24px 0 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comp-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 14px;
+        }
+
+        .comp-card {
+            background: #e0e0e0;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px 18px;
+        }
+
+        .comp-card .comp-shop {
+            font-size: .7rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .comp-card .comp-name {
+            font-size: .82rem;
+            margin-bottom: 10px;
+            color: var(--muted);
+        }
+
+        .comp-card .comp-prices {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .comp-card .comp-price-val {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .comp-card .comp-price-norm {
+            font-size: .78rem;
+            color: var(--muted);
+            text-decoration: line-through;
+        }
+
+        .comp-card .comp-diff {
+            font-size: .8rem;
+            font-weight: 600;
+            padding: 3px 9px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-bottom: 8px;
+        }
+
+        .comp-card .comp-diff.pos {
+            background: rgba(47, 145, 70, 0.19);
+            color: #47f56f;
+        }
+
+        .comp-card .comp-diff.neg {
+            background: rgba(147, 46, 15, 0.19);
+            color: #d24014;
+        }
+
+        .comp-card .comp-diff.zero {
+            background: rgba(255, 230, 109, .12);
+            color: #ffe66d;
+        }
+
+        .comp-card .comp-avail {
+            font-size: .72rem;
+            color: var(--muted);
+        }
+
+        .comp-card a {
+            font-size: .75rem;
+            color: var(--accent);
+            text-decoration: none;
+            display: block;
+            margin-top: 6px;
+        }
+
+        .comp-card a:hover {
+            text-decoration: underline;
+        }
+
+        .no-competitors {
+            color: var(--muted);
+            font-size: .85rem;
+            padding: 12px 0;
+        }
+    </style>
 </head>
 <body>
 
 <nav>
-  <div class="nav-logo">Analityka</div>
-  <div class="nav-sub">Panel zarządzania</div>
-  <a href="/dashboard" class="active">Dashboard</a>
-  {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
-  <div class="nav-spacer"></div>
-  <div class="nav-user">
-    <strong>{{ username }}</strong>
-    {% if is_admin %}<span style="color:var(--accent);font-size:.68rem;">ADMIN</span>{% endif %}
-    <br><br>
-    <a href="/logout" style="color:var(--error)">Wyloguj →</a>
-  </div>
+    <div class="nav-logo">Analityka</div>
+    <div class="nav-sub">Panel zarządzania</div>
+    <a href="/dashboard" class="active">Dashboard</a>
+    {% if is_admin %}<a href="/admin">Admin</a>{% endif %}
+    <div class="nav-spacer"></div>
+    <div class="nav-user">
+        <strong>{{ username }}</strong>
+        {% if is_admin %}<span style="color:var(--accent);font-size:.68rem;">ADMIN</span>{% endif %}
+        <br><br>
+        <a href="/logout" style="color:var(--error)">Wyloguj →</a>
+    </div>
 </nav>
 
 <main>
-  <h1>Dashboard analityczny</h1>
-  <p class="page-sub">Przegląd produktów · dane na żywo z PostgreSQL</p>
+    <h1>Dashboard analityczny</h1>
+    <p class="page-sub">Przegląd produktów · dane na żywo z PostgreSQL</p>
 
-  <!--tab bar -->
-  <div class="tab-bar">
-    <button class="tab-btn active" onclick="switchTab('overview')">Przegląd</button>
-    <button class="tab-btn"       onclick="switchTab('compare')">Porównanie cen</button>
-  </div>
-
-<!-- tab 1 - overview !-->
-  <div class="tab-panel active" id="tab-overview">
-
-    <div class="kpi-row">
-      <div class="kpi"><label>Produkty łącznie</label><div class="val" id="kpi-total">—</div><div class="kpi-hint">unikalnych SKU</div></div>
-      <div class="kpi"><label>Śr. cena normalna</label><div class="val" id="kpi-avg-normal">—</div><div class="kpi-hint">zł brutto</div></div>
-      <div class="kpi"><label>Śr. cena promocyjna</label><div class="val" id="kpi-avg-special">—</div><div class="kpi-hint">zł brutto</div></div>
-      <div class="kpi"><label>Kategorie</label><div class="val" id="kpi-cats">—</div><div class="kpi-hint">unikalnych</div></div>
-      <div class="kpi"><label>Sklepy</label><div class="val" id="kpi-stores">—</div><div class="kpi-hint">unikalnych</div></div>
-      <div class="kpi"><label>Producenci</label><div class="val" id="kpi-mfr">—</div><div class="kpi-hint">unikalnych</div></div>
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('overview')">Przegląd</button>
+        <button class="tab-btn" onclick="switchTab('compare')">Porównanie cen</button>
     </div>
 
-    <div class="chart-row">
-      <div class="chart-card"><h2>Produkty wg kategorii</h2><canvas id="chartCategory" height="220"></canvas></div>
-      <div class="chart-card"><h2>Produkty wg sklepu</h2><canvas id="chartStore" height="220"></canvas></div>
-    </div>
-    <div class="chart-row">
-      <div class="chart-card"><h2>Śr. cena wg kategorii (zł)</h2><canvas id="chartCatPrice" height="220"></canvas></div>
-      <div class="chart-card"><h2>Dostępność produktów</h2><canvas id="chartAvail" height="220"></canvas></div>
-    </div>
+    <div class="tab-panel active" id="tab-overview">
 
-    <div class="table-card">
-      <div class="table-header">
-        <h2>Tabela produktów</h2>
-        <div class="filters">
-          <input id="filterSearch" type="text" placeholder="Szukaj nazwy / SKU…" style="width:160px">
-          <select id="filterCategory"><option value="">Wszystkie kategorie</option></select>
-          <select id="filterStore"><option value="">Wszystkie sklepy</option></select>
-          <select id="filterAvailability">
-            <option value="">Dostępność</option>
-            <option value="Dostępny">Dostępny</option>
-            <option value="Mało">Mało</option>
-            <option value="Niedostępny">Niedostępny</option>
-          </select>
-          <input id="filterMinPrice" type="number" placeholder="Cena min" style="width:90px">
-          <input id="filterMaxPrice" type="number" placeholder="Cena max" style="width:90px">
-          <button class="btn" onclick="loadProducts()">Filtruj</button>
-          <button class="btn-ghost" onclick="resetFilters()">Resetuj</button>
+        <div class="kpi-row">
+            <div class="kpi"><label>Produkty łącznie</label>
+                <div class="val" id="kpi-total">—</div>
+                <div class="kpi-hint">unikalnych SKU</div>
+            </div>
+            <div class="kpi"><label>Śr. cena normalna</label>
+                <div class="val" id="kpi-avg-normal">—</div>
+                <div class="kpi-hint">zł brutto</div>
+            </div>
+            <div class="kpi"><label>Śr. cena promocyjna</label>
+                <div class="val" id="kpi-avg-special">—</div>
+                <div class="kpi-hint">zł brutto</div>
+            </div>
+            <div class="kpi"><label>Kategorie</label>
+                <div class="val" id="kpi-cats">—</div>
+                <div class="kpi-hint">unikalnych</div>
+            </div>
+            <div class="kpi"><label>Sklepy</label>
+                <div class="val" id="kpi-stores">—</div>
+                <div class="kpi-hint">unikalnych</div>
+            </div>
+            <div class="kpi"><label>Producenci</label>
+                <div class="val" id="kpi-mfr">—</div>
+                <div class="kpi-hint">unikalnych</div>
+            </div>
         </div>
-      </div>
-      <div id="tableWrap"><div class="spinner">Ładowanie danych…</div></div>
+
+        <div class="chart-row">
+            <div class="chart-card"><h2>Produkty wg kategorii</h2>
+                <canvas id="chartCategory" height="220"></canvas>
+            </div>
+            <div class="chart-card"><h2>Produkty wg sklepu</h2>
+                <canvas id="chartStore" height="220"></canvas>
+            </div>
+        </div>
+        <div class="chart-row">
+            <div class="chart-card"><h2>Śr. cena wg kategorii (zł)</h2>
+                <canvas id="chartCatPrice" height="220"></canvas>
+            </div>
+            <div class="chart-card"><h2>Dostępność produktów</h2>
+                <canvas id="chartAvail" height="220"></canvas>
+            </div>
+        </div>
+
+        <div class="table-card">
+            <div class="table-header">
+                <h2>Tabela produktów</h2>
+                <div class="filters">
+                    <input id="filterSearch" type="text" placeholder="Szukaj nazwy / SKU…" style="width:160px">
+                    <select id="filterCategory">
+                        <option value="">Wszystkie kategorie</option>
+                    </select>
+                    <select id="filterStore">
+                        <option value="">Wszystkie sklepy</option>
+                    </select>
+                    <select id="filterAvailability">
+                        <option value="">Dostępność</option>
+                        <option value="Dostępny">Dostępny</option>
+                        <option value="Mało">Mało</option>
+                        <option value="Niedostępny">Niedostępny</option>
+                    </select>
+                    <input id="filterMinPrice" type="number" placeholder="Cena min" style="width:90px">
+                    <input id="filterMaxPrice" type="number" placeholder="Cena max" style="width:90px">
+                    <button class="btn" onclick="loadProducts()">Filtruj</button>
+                    <button class="btn-ghost" onclick="resetFilters()">Resetuj</button>
+                </div>
+            </div>
+            <p style="font-size:.75rem;color:var(--muted);margin:0 0 12px">Kliknij wiersz, żeby zobaczyć szczegóły
+                produktu.</p>
+            <div id="tableWrap">
+                <div class="spinner">Ładowanie danych…</div>
+            </div>
+        </div>
     </div>
-  </div>
 
-  <!-- tab 2 - price comparison -->
-  <div class="tab-panel" id="tab-compare">
+    <div class="tab-panel" id="tab-compare">
 
-    <!-- per-shop summary kpis (rendered dynamically) -->
-    <div id="cmpSummaryWrap"></div>
+        <div id="cmpSummaryWrap"></div>
 
-    <!-- Charts -->
-    <div class="chart-row">
-      <div class="chart-card">
-        <h2>Wynik cenowy wg sklepu</h2>
-        <canvas id="chartCmpResult" height="220"></canvas>
-      </div>
-      <div class="chart-card">
-        <h2>Śr. różnica ceny wg kategorii (zł)</h2>
-        <canvas id="chartCmpCategory" height="220"></canvas>
-      </div>
+        <div class="chart-row" style="display: none;">
+            <div class="chart-card"><h2>Wynik cenowy wg sklepu</h2>
+                <canvas id="chartCmpResult" height="220"></canvas>
+            </div>
+            <div class="chart-card"><h2>Śr. różnica ceny wg kategorii (zł)</h2>
+                <canvas id="chartCmpCategory" height="220"></canvas>
+            </div>
+        </div>
+
+        <div class="cmp-filters">
+            <select id="cmpFilterShop">
+                <option value="">Wszystkie sklepy</option>
+            </select>
+            <select id="cmpFilterCategory">
+                <option value="">Wszystkie kategorie</option>
+            </select>
+            <select id="cmpFilterDiff">
+                <option value="">Wszystkie wyniki</option>
+                <option value="cheaper">Jesteśmy tańsi ↓</option>
+                <option value="expensive">Jesteśmy drożsi ↑</option>
+                <option value="equal">Cena równa =</option>
+            </select>
+            <button class="btn" onclick="loadComparison()">Filtruj</button>
+            <button class="btn-ghost" onclick="resetCmpFilters()">Resetuj</button>
+        </div>
+
+        <div class="table-card">
+            <div class="table-header">
+                <h2>Zestawienie cen</h2>
+                <span id="cmpCount" style="color:var(--muted);font-size:.8rem"></span>
+            </div>
+            <div id="cmpTableWrap">
+                <div class="spinner">Ładowanie…</div>
+            </div>
+        </div>
     </div>
-
-    <!-- filters -->
-    <div class="cmp-filters">
-      <select id="cmpFilterShop">
-        <option value="">Wszystkie sklepy</option>
-        <option value="products_shop1">Shop 1</option>
-        <option value="products_shop2">Shop 2</option>
-      </select>
-      <select id="cmpFilterCategory"><option value="">Wszystkie kategorie</option></select>
-      <select id="cmpFilterDiff">
-        <option value="">Wszystkie wyniki</option>
-        <option value="cheaper">Jesteśmy tańsi ↓</option>
-        <option value="expensive">Jesteśmy drożsi ↑</option>
-        <option value="equal">Cena równa =</option>
-      </select>
-      <button class="btn" onclick="loadComparison()">Filtruj</button>
-      <button class="btn-ghost" onclick="resetCmpFilters()">Resetuj</button>
-    </div>
-
-    <!-- comparison table -->
-    <div class="table-card">
-      <div class="table-header">
-        <h2>Zestawienie cen</h2>
-        <span id="cmpCount" style="color:var(--muted);font-size:.8rem"></span>
-      </div>
-      <div id="cmpTableWrap"><div class="spinner">Ładowanie…</div></div>
-    </div>
-  </div>
-
 </main>
 
+<div class="modal-backdrop" id="modalBackdrop" onclick="closeModal(event)">
+    <div class="modal" id="modal">
+        <button class="modal-close" onclick="closeModalDirect()">✕</button>
+        <div id="modalContent">
+            <div class="spinner">Ładowanie…</div>
+        </div>
+    </div>
+</div>
+
 <script>
+    //tu kolory do wykresikow
+    const PALETTE = ['#4fffb0', '#00c2ff', '#ff6b9d', '#ffe66d', '#a78bfa', '#fb923c', '#34d399', '#f472b6'];
+    Chart.defaults.color = '#5a6478';
+    Chart.defaults.borderColor = '#1e2535';
+    Chart.defaults.font.family = "'DM Mono', monospace";
 
-//  CONFIG & HELPERS
-const PALETTE = ['#4fffb0','#00c2ff','#ff6b9d','#ffe66d','#a78bfa','#fb923c','#34d399','#f472b6'];
-Chart.defaults.color       = '#5a6478';
-Chart.defaults.borderColor = '#1e2535';
-Chart.defaults.font.family = "'DM Mono', monospace";
+    let sortCol = 'id', sortDir = 'asc';
+    let cmpSortCol = 'diff_abs', cmpSortDir = 'desc';
+    let charts = {};
+    let cmpData = [];
 
-let sortCol    = 'id',       sortDir    = 'asc';
-let cmpSortCol = 'diff_abs', cmpSortDir = 'desc';
-let charts = {};
-let cmpData = [];
+    const gc = n => Array.from({length: n}, (_, i) => PALETTE[i % PALETTE.length]);
+    const dc = k => {
+        if (charts[k]) {
+            charts[k].destroy();
+            delete charts[k];
+        }
+    };
+    const fmt = v => v != null ? parseFloat(v).toFixed(2) + ' zł' : '—';
 
-const gc = n => Array.from({length:n},(_,i)=>PALETTE[i%PALETTE.length]);
-const dc = k => { if(charts[k]){charts[k].destroy();delete charts[k];} };
-const fmt = v => v != null ? parseFloat(v).toFixed(2)+' zł' : '—';
+    const TAB_IDS = ['overview', 'compare'];
 
+    function switchTab(name) {
+        document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', TAB_IDS[i] === name));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById('tab-' + name).classList.add('active');
 
-//  TAB SWITCHING
-const TAB_IDS = ['overview','compare'];
-function switchTab(name) {
-  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', TAB_IDS[i]===name));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
-  if (name === 'compare' && cmpData.length === 0) {
-    loadComparisonSummary();
-    loadComparison();
-  }
-}
+        // WYSTARCZY WYWOŁAĆ loadComparison, KPI zbuduje się wewnątrz i pobierze dane z /api/report
+        if (name === 'compare' && cmpData.length === 0) {
+            loadComparison();
+        }
+    }
 
+    // OVERVIEW
+    async function loadStats() {
+        const json = await fetch('/api/stats').then(r => r.json());
+        if (!json.ok) return;
+        const s = json.summary;
+        document.getElementById('kpi-total').textContent = s.total ?? '—';
+        document.getElementById('kpi-avg-normal').textContent = s.avg_price_normal ? parseFloat(s.avg_price_normal).toFixed(2) + ' zł' : '—';
+        document.getElementById('kpi-avg-special').textContent = s.avg_price_special ? parseFloat(s.avg_price_special).toFixed(2) + ' zł' : '—';
+        document.getElementById('kpi-cats').textContent = s.total_categories ?? '—';
+        document.getElementById('kpi-stores').textContent = s.total_stores ?? '—';
+        document.getElementById('kpi-mfr').textContent = s.total_manufacturers ?? '—';
 
-//  TAB 1 — OVERVIEW
+        const cats = json.by_category.map(r => r.category);
+        const counts = json.by_category.map(r => parseInt(r.count));
+        const prices = json.by_category.map(r => parseFloat(r.avg_price).toFixed(2));
+        const cc = gc(cats.length);
 
-async function loadStats() {
-  const json = await fetch('/api/stats').then(r=>r.json());
-  if (!json.ok) return;
-  const s = json.summary;
-  document.getElementById('kpi-total').textContent       = s.total ?? '—';
-  document.getElementById('kpi-avg-normal').textContent  = s.avg_price_normal  ? parseFloat(s.avg_price_normal).toFixed(2)+' zł'  : '—';
-  document.getElementById('kpi-avg-special').textContent = s.avg_price_special ? parseFloat(s.avg_price_special).toFixed(2)+' zł' : '—';
-  document.getElementById('kpi-cats').textContent        = s.total_categories    ?? '—';
-  document.getElementById('kpi-stores').textContent      = s.total_stores        ?? '—';
-  document.getElementById('kpi-mfr').textContent         = s.total_manufacturers ?? '—';
+        dc('cat');
+        charts.cat = new Chart(document.getElementById('chartCategory'), {
+            type: 'doughnut',
+            data: {labels: cats, datasets: [{data: counts, backgroundColor: cc, borderWidth: 0}]},
+            options: {plugins: {legend: {position: 'bottom', labels: {boxWidth: 12, padding: 14}}}, cutout: '62%'}
+        });
 
-  const cats   = json.by_category.map(r=>r.category);
-  const counts = json.by_category.map(r=>parseInt(r.count));
-  const prices = json.by_category.map(r=>parseFloat(r.avg_price).toFixed(2));
-  const cc     = gc(cats.length);
+        const stores = json.by_store.map(r => r.store);
+        const sCounts = json.by_store.map(r => parseInt(r.count));
+        const sc = gc(stores.length);
+        dc('store');
+        charts.store = new Chart(document.getElementById('chartStore'), {
+            type: 'bar',
+            data: {
+                labels: stores,
+                datasets: [{
+                    label: 'Produkty',
+                    data: sCounts,
+                    backgroundColor: sc.map(c => c + 'bb'),
+                    borderColor: sc,
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                plugins: {legend: {display: false}},
+                scales: {x: {grid: {display: false}}, y: {grid: {color: '#1e2535'}}}
+            }
+        });
 
-  dc('cat');
-  charts.cat = new Chart(document.getElementById('chartCategory'),{
-    type:'doughnut',
-    data:{labels:cats,datasets:[{data:counts,backgroundColor:cc,borderWidth:0}]},
-    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},cutout:'62%'}
-  });
+        dc('catprice');
+        charts.catprice = new Chart(document.getElementById('chartCatPrice'), {
+            type: 'bar',
+            data: {
+                labels: cats,
+                datasets: [{
+                    label: 'Śr. cena (zł)',
+                    data: prices,
+                    backgroundColor: cc.map(c => c + 'bb'),
+                    borderColor: cc,
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                plugins: {legend: {display: false}},
+                scales: {x: {grid: {display: false}}, y: {grid: {color: '#1e2535'}, ticks: {callback: v => v + ' zł'}}}
+            }
+        });
 
-  const stores  = json.by_store.map(r=>r.store);
-  const sCounts = json.by_store.map(r=>parseInt(r.count));
-  const sc      = gc(stores.length);
-  dc('store');
-  charts.store = new Chart(document.getElementById('chartStore'),{
-    type:'bar',
-    data:{labels:stores,datasets:[{label:'Produkty',data:sCounts,backgroundColor:sc.map(c=>c+'bb'),borderColor:sc,borderWidth:1,borderRadius:4}]},
-    options:{plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'#1e2535'}}}}
-  });
+        const avails = json.by_availability.map(r => r.availability ?? 'Nieznana');
+        const aCounts = json.by_availability.map(r => parseInt(r.count));
+        dc('avail');
+        charts.avail = new Chart(document.getElementById('chartAvail'), {
+            type: 'doughnut',
+            data: {
+                labels: avails,
+                datasets: [{
+                    data: aCounts,
+                    backgroundColor: ['#4fffb0', '#ffe66d', '#ff6b9d', '#a78bfa'],
+                    borderWidth: 0
+                }]
+            },
+            options: {plugins: {legend: {position: 'bottom', labels: {boxWidth: 12, padding: 14}}}, cutout: '62%'}
+        });
+    }
 
-  dc('catprice');
-  charts.catprice = new Chart(document.getElementById('chartCatPrice'),{
-    type:'bar',
-    data:{labels:cats,datasets:[{label:'Śr. cena (zł)',data:prices,backgroundColor:cc.map(c=>c+'bb'),borderColor:cc,borderWidth:1,borderRadius:4}]},
-    options:{plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid:{color:'#1e2535'},ticks:{callback:v=>v+' zł'}}}}
-  });
+    async function loadDropdowns() {
+        const [catRes, storeRes] = await Promise.all([
+            fetch('/api/categories').then(r => r.json()),
+            fetch('/api/stores').then(r => r.json()),
+        ]);
+        if (catRes.ok) {
+            [document.getElementById('filterCategory'), document.getElementById('cmpFilterCategory')]
+                .forEach(sel => catRes.data.forEach(c => {
+                    const o = document.createElement('option');
+                    o.value = c;
+                    o.textContent = c;
+                    sel.appendChild(o);
+                }));
+        }
+        if (storeRes.ok) {
+            const sel = document.getElementById('filterStore');
+            storeRes.data.forEach(s => {
+                const o = document.createElement('option');
+                o.value = s;
+                o.textContent = s;
+                sel.appendChild(o);
+            });
+        }
+    }
 
-  const avails  = json.by_availability.map(r=>r.availability??'Nieznana');
-  const aCounts = json.by_availability.map(r=>parseInt(r.count));
-  dc('avail');
-  charts.avail = new Chart(document.getElementById('chartAvail'),{
-    type:'doughnut',
-    data:{labels:avails,datasets:[{data:aCounts,backgroundColor:['#4fffb0','#ffe66d','#ff6b9d','#a78bfa'],borderWidth:0}]},
-    options:{plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},cutout:'62%'}
-  });
-}
+    async function loadProducts() {
+        const p = new URLSearchParams({sort: sortCol, order: sortDir});
+        const search = document.getElementById('filterSearch').value.trim();
+        const cat = document.getElementById('filterCategory').value;
+        const store = document.getElementById('filterStore').value;
+        const avail = document.getElementById('filterAvailability').value;
+        const minP = document.getElementById('filterMinPrice').value;
+        const maxP = document.getElementById('filterMaxPrice').value;
+        if (search) p.set('search', search);
+        if (cat) p.set('category', cat);
+        if (store) p.set('store', store);
+        if (avail) p.set('availability', avail);
+        if (minP) p.set('min_price', minP);
+        if (maxP) p.set('max_price', maxP);
 
-async function loadDropdowns() {
-  const [catRes, storeRes] = await Promise.all([
-    fetch('/api/categories').then(r=>r.json()),
-    fetch('/api/stores').then(r=>r.json()),
-  ]);
-  if (catRes.ok) {
-    [document.getElementById('filterCategory'), document.getElementById('cmpFilterCategory')]
-      .forEach(sel => catRes.data.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);}));
-  }
-  if (storeRes.ok) {
-    const sel = document.getElementById('filterStore');
-    storeRes.data.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});
-  }
-}
+        document.getElementById('tableWrap').innerHTML = '<div class="spinner">Ładowanie…</div>';
+        const json = await fetch('/api/products?' + p).then(r => r.json());
+        if (!json.ok) {
+            document.getElementById('tableWrap').innerHTML = `<p class="no-data">Błąd: ${json.error}</p>`;
+            return;
+        }
+        renderProductsTable(json.data);
+    }
 
-async function loadProducts() {
-  const p = new URLSearchParams({sort:sortCol,order:sortDir});
-  const search = document.getElementById('filterSearch').value.trim();
-  const cat    = document.getElementById('filterCategory').value;
-  const store  = document.getElementById('filterStore').value;
-  const avail  = document.getElementById('filterAvailability').value;
-  const minP   = document.getElementById('filterMinPrice').value;
-  const maxP   = document.getElementById('filterMaxPrice').value;
-  if (search) p.set('search',   search);
-  if (cat)    p.set('category', cat);
-  if (store)  p.set('store',    store);
-  if (avail)  p.set('availability', avail);
-  if (minP)   p.set('min_price', minP);
-  if (maxP)   p.set('max_price', maxP);
+    function renderProductsTable(rows) {
+        if (!rows.length) {
+            document.getElementById('tableWrap').innerHTML = '<p class="no-data">Brak wyników.</p>';
+            return;
+        }
 
-  document.getElementById('tableWrap').innerHTML='<div class="spinner">Ładowanie…</div>';
-  const json = await fetch('/api/products?'+p).then(r=>r.json());
-  if (!json.ok){document.getElementById('tableWrap').innerHTML=`<p class="no-data">Błąd: ${json.error}</p>`;return;}
-  renderProductsTable(json.data);
-}
+        const cols = [
+            {key: 'id', label: 'ID'},
+            {key: 'sku', label: 'SKU'},
+            {key: 'name', label: 'Nazwa'},
+            {key: 'category', label: 'Kategoria'},
+            {key: 'size', label: 'Rozmiar'},
+            {key: 'color', label: 'Kolor'},
+            {key: 'manufacturer', label: 'Producent'},
+            {key: 'store', label: 'Sklep'},
+            {key: 'price_normal', label: 'Cena norm.'},
+            {key: 'price_special', label: 'Cena prom.'},
+            {key: 'availability', label: 'Dostępność'},
+            {key: 'date_of_download', label: 'Pobrano'},
+        ];
 
-function renderProductsTable(rows) {
-  if (!rows.length){document.getElementById('tableWrap').innerHTML='<p class="no-data">Brak wyników.</p>';return;}
-  const cols=[
-    {key:'id',label:'ID'},{key:'sku',label:'SKU'},{key:'name',label:'Nazwa'},
-    {key:'category',label:'Kategoria'},{key:'size',label:'Rozmiar'},{key:'color',label:'Kolor'},
-    {key:'manufacturer',label:'Producent'},{key:'store',label:'Sklep'},
-    {key:'price_normal',label:'Cena norm.'},{key:'price_special',label:'Cena prom.'},
-    {key:'availability',label:'Dostępność'},{key:'date_of_download',label:'Pobrano'},
-  ];
-  let html='<table><thead><tr>';
-  cols.forEach(c=>{
-    const icon=sortCol===c.key?(sortDir==='asc'?'▲':'▼'):'⇅';
-    html+=`<th onclick="changeSort('${c.key}')">${c.label} <span class="sort-icon">${icon}</span></th>`;
-  });
-  html+='</tr></thead><tbody>';
-  rows.forEach(r=>{
-    const date=r.date_of_download?new Date(r.date_of_download).toLocaleDateString('pl'):'—';
-    const disc=(r.price_normal&&r.price_special&&r.price_special<r.price_normal)
-      ?`<span style="color:var(--accent);font-size:.7rem">-${Math.round((1-r.price_special/r.price_normal)*100)}%</span>`:'';
-    const ac=r.availability==='Dostępny'?'color:var(--accent)':r.availability==='Mało'?'color:#ffe66d':'color:var(--error)';
-    html+=`<tr>
+        let html = '<table><thead><tr>';
+        cols.forEach(c => {
+            const icon = sortCol === c.key ? (sortDir === 'asc' ? '▲' : '▼') : '⇅';
+            html += `<th onclick="changeSort('${c.key}')">${c.label} <span class="sort-icon">${icon}</span></th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        rows.forEach(r => {
+            const date = r.date_of_download ? new Date(r.date_of_download).toLocaleDateString('pl') : '—';
+            const disc = (r.price_normal && r.price_special && r.price_special < r.price_normal)
+                ? `<span style="color:var(--accent);font-size:.7rem"> -${Math.round((1 - r.price_special / r.price_normal) * 100)}%</span>` : '';
+            const ac = r.availability === 'Dostępny' ? 'color:var(--accent)' : r.availability === 'Mało' ? 'color:#ffe66d' : 'color:var(--error)';
+            html += `<tr class="clickable" onclick="openProduct(${r.id})" title="Kliknij, żeby zobaczyć szczegóły">
       <td style="color:var(--muted)">#${r.id}</td>
-      <td style="font-size:.72rem;color:var(--muted)">${r.sku??'—'}</td>
-      <td>${r.name??'—'}</td>
-      <td><span class="badge">${r.category??'—'}</span></td>
-      <td>${r.size??'—'}</td><td>${r.color??'—'}</td><td>${r.manufacturer??'—'}</td><td>${r.store??'—'}</td>
-      <td class="price-cell">${r.price_normal!=null?parseFloat(r.price_normal).toFixed(2)+' zł':'—'}</td>
-      <td class="price-cell">${r.price_special!=null?parseFloat(r.price_special).toFixed(2)+' zł '+disc:'—'}</td>
-      <td style="${ac}">${r.availability??'—'}</td>
+      <td style="font-size:.72rem;color:var(--muted)">${r.sku ?? '—'}</td>
+      <td>${r.name ?? '—'}</td>
+      <td><span class="badge">${r.category ?? '—'}</span></td>
+      <td>${r.size ?? '—'}</td>
+      <td>${r.color ?? '—'}</td>
+      <td>${r.manufacturer ?? '—'}</td>
+      <td>${r.store ?? '—'}</td>
+      <td class="price-cell">${r.price_normal != null ? parseFloat(r.price_normal).toFixed(2) + ' zł' : '—'}</td>
+      <td class="price-cell">${r.price_special != null ? parseFloat(r.price_special).toFixed(2) + ' zł' + disc : '—'}</td>
+      <td style="${ac}">${r.availability ?? '—'}</td>
       <td style="color:var(--muted)">${date}</td>
     </tr>`;
-  });
-  html+='</tbody></table>';
-  document.getElementById('tableWrap').innerHTML=html;
-}
+        });
+        html += '</tbody></table>';
+        document.getElementById('tableWrap').innerHTML = html;
+    }
 
-function changeSort(col){
-  if(sortCol===col)sortDir=sortDir==='asc'?'desc':'asc';
-  else{sortCol=col;sortDir='asc';}
-  loadProducts();
-}
-function resetFilters(){
-  ['filterSearch','filterCategory','filterStore','filterAvailability','filterMinPrice','filterMaxPrice']
-    .forEach(id=>document.getElementById(id).value='');
-  sortCol='id';sortDir='asc';
-  loadProducts();
-}
+    function changeSort(col) {
+        if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        else {
+            sortCol = col;
+            sortDir = 'asc';
+        }
+        loadProducts();
+    }
 
+    function resetFilters() {
+        ['filterSearch', 'filterCategory', 'filterStore', 'filterAvailability', 'filterMinPrice', 'filterMaxPrice']
+            .forEach(id => document.getElementById(id).value = '');
+        sortCol = 'id';
+        sortDir = 'asc';
+        loadProducts();
+    }
 
-//  TAB 2 — PRICE COMPARISON
+    // DETALE PRODUKTU
+    async function openProduct(id) {
+        document.getElementById('modalBackdrop').classList.add('open');
+        document.getElementById('modalContent').innerHTML = '<div class="spinner" style="padding:60px 0">Ładowanie…</div>';
 
-async function loadComparisonSummary() {
-  const json = await fetch('/api/comparison/summary').then(r=>r.json());
-  if (!json.ok) return;
+        const json = await fetch(`/api/products/${id}`).then(r => r.json());
+        if (!json.ok) {
+            document.getElementById('modalContent').innerHTML = `<p style="color:var(--error)">Błąd: ${json.error}</p>`;
+            return;
+        }
 
-  // Per-shop KPI blocks
-  let html = '';
-  json.data.forEach(shop => {
-    const total    = parseInt(shop.total_mapped)||0;
-    const cheaper  = parseInt(shop.we_cheaper)||0;
-    const expensive= parseInt(shop.we_expensive)||0;
-    const equal    = parseInt(shop.equal)||0;
-    const avg      = shop.avg_diff_abs!=null ? parseFloat(shop.avg_diff_abs) : null;
-    const avgFmt   = avg!=null ? (avg>0?'+':'')+avg.toFixed(2)+' zł' : '—';
-    const avgClass = avg>0?'cheaper':avg<0?'expensive':'equal';
-    html += `
-      <div class="shop-section-label">${shop.shop_label}</div>
-      <div class="cmp-kpi-row">
-        <div class="cmp-kpi"><label>Zmapowane pary</label><div class="val">${total}</div><div class="hint">produktów</div></div>
-        <div class="cmp-kpi"><label>Jesteśmy tańsi</label><div class="val cheaper">${cheaper}</div><div class="hint">produktów</div></div>
-        <div class="cmp-kpi"><label>Jesteśmy drożsi</label><div class="val expensive">${expensive}</div><div class="hint">produktów</div></div>
-        <div class="cmp-kpi"><label>Cena równa</label><div class="val equal">${equal}</div><div class="hint">produktów</div></div>
-        <div class="cmp-kpi"><label>Śr. różnica ceny</label><div class="val ${avgClass}">${avgFmt}</div><div class="hint">+ = my tańsi</div></div>
+        const p = json.product;
+        const cmp = json.competitors;
+
+        // ceny
+        let priceHtml = '';
+        if (p.price_special && p.price_special < p.price_normal) {
+            const disc = Math.round((1 - p.price_special / p.price_normal) * 100);
+            priceHtml = `
+      <div class="modal-prices">
+        <span class="modal-price-special">${parseFloat(p.price_special).toFixed(2)} zł</span>
+        <span class="modal-price-crossed">${parseFloat(p.price_normal).toFixed(2)} zł</span>
+        <span class="badge" style="background:rgba(79,255,176,.12);color:var(--accent)">-${disc}%</span>
       </div>`;
-  });
-  document.getElementById('cmpSummaryWrap').innerHTML = html;
+        } else if (p.price_normal) {
+            priceHtml = `<div class="modal-prices"><span class="modal-price-normal">${parseFloat(p.price_normal).toFixed(2)} zł</span></div>`;
+        }
 
-  // chart: cheaper/equal/expensive stacked per shop
-  const shopLabels   = json.data.map(s=>s.shop_label);
-  const cheaperVals  = json.data.map(s=>parseInt(s.we_cheaper)||0);
-  const equalVals    = json.data.map(s=>parseInt(s.equal)||0);
-  const expensVals   = json.data.map(s=>parseInt(s.we_expensive)||0);
+        // dostepnosc
+        const ac = p.availability === 'Dostępny' ? 'var(--accent)' : p.availability === 'Mało' ? '#ffe66d' : 'var(--error)';
 
-  dc('cmpResult');
-  charts.cmpResult = new Chart(document.getElementById('chartCmpResult'),{
-    type:'bar',
-    data:{
-      labels: shopLabels,
-      datasets:[
-        {label:'Tańsi',      data:cheaperVals, backgroundColor:'#4fffb0bb',borderColor:'#4fffb0',borderWidth:1,borderRadius:4},
-        {label:'Równa cena', data:equalVals,   backgroundColor:'#ffe66dbb',borderColor:'#ffe66d',borderWidth:1,borderRadius:4},
-        {label:'Drożsi',     data:expensVals,  backgroundColor:'#ff6b9dbb',borderColor:'#ff6b9d',borderWidth:1,borderRadius:4},
-      ]
-    },
-    options:{
-      plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},
-      scales:{x:{grid:{display:false}},y:{grid:{color:'#1e2535'},ticks:{stepSize:1}}}
+        // zdjecie produktu / placeholder
+        const imgHtml = p.image
+            ? `<img class="modal-img" src="${p.image}" alt="${p.name ?? ''}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+            : '';
+        const placeholderHtml = `<div class="modal-img-placeholder" ${p.image ? 'style="display:none"' : ''}>zdj</div>`;
+
+        let compHtml = '';
+        if (!cmp.length) {
+            compHtml = '<p class="no-competitors">Brak dopasowanych produktów w sklepach konkurencji.</p>';
+        } else {
+            compHtml = '<div class="comp-grid">';
+            cmp.forEach(c => {
+                const dAbs = parseFloat(c.diff_abs) || 0;
+                const dPct = parseFloat(c.diff_pct) || 0;
+                const diffCls = dAbs > 0 ? 'pos' : dAbs < 0 ? 'neg' : 'zero';
+                const diffLbl = dAbs > 0
+                    ? `↓ my tańsi o ${dAbs.toFixed(2)} zł (${dPct.toFixed(1)}%)`
+                    : dAbs < 0
+                        ? `↑ my drożsi o ${Math.abs(dAbs).toFixed(2)} zł (${Math.abs(dPct).toFixed(1)}%)`
+                        : '= cena równa';
+                const shopCls = c.shop_table === 'products_shop1' ? 'badge-shop1' : 'badge-shop2';
+                const hasSpec = c.comp_price_special && c.comp_price_special < c.comp_price_normal;
+                const compPriceHtml = hasSpec
+                    ? `<span class="comp-price-val">${parseFloat(c.comp_price_special).toFixed(2)} zł</span>
+           <span class="comp-price-norm">${parseFloat(c.comp_price_normal).toFixed(2)} zł</span>`
+                    : `<span class="comp-price-val">${c.comp_price_normal != null ? parseFloat(c.comp_price_normal).toFixed(2) + ' zł' : '—'}</span>`;
+                const availColor = c.comp_availability === 'Dostępny' ? 'var(--accent)' : c.comp_availability === 'Mało' ? '#ffe66d' : 'var(--error)';
+                compHtml += `
+        <div class="comp-card">
+          <div class="comp-shop"><span class="badge ${shopCls}">${c.shop_label}</span></div>
+          <div class="comp-name">${c.comp_name ?? '—'}</div>
+          <div class="comp-prices">${compPriceHtml}</div>
+          <div class="comp-diff ${diffCls}">${diffLbl}</div>
+          <div class="comp-avail" style="color:${availColor}">${c.comp_availability ?? '—'}</div>
+          ${c.url ? `<a href="${c.url}" target="_blank">Otwórz w sklepie ↗</a>` : ''}
+        </div>`;
+            });
+            compHtml += '</div>';
+        }
+
+        const date = p.date_of_download ? new Date(p.date_of_download).toLocaleDateString('pl') : '—';
+
+        document.getElementById('modalContent').innerHTML = `
+    <div class="modal-top">
+      <div>
+        ${imgHtml}
+        ${placeholderHtml}
+      </div>
+      <div class="modal-info">
+        <div class="modal-sku">SKU: ${p.sku ?? '—'} &nbsp;·&nbsp; #${p.id}</div>
+        <h2>${p.name ?? '—'}</h2>
+        ${priceHtml}
+        <div class="modal-meta">
+          <div class="modal-meta-item"><label>Kategoria</label><span>${p.category ?? '—'}</span></div>
+          <div class="modal-meta-item"><label>Producent</label><span>${p.manufacturer ?? '—'}</span></div>
+          <div class="modal-meta-item"><label>Rozmiar</label><span>${p.size ?? '—'}</span></div>
+          <div class="modal-meta-item"><label>Kolor</label><span>${p.color ?? '—'}</span></div>
+          <div class="modal-meta-item"><label>Sklep</label><span>${p.store ?? '—'}</span></div>
+          <div class="modal-meta-item"><label>Dostępność</label><span style="color:${ac}">${p.availability ?? '—'}</span></div>
+          <div class="modal-meta-item"><label>Data pobrania</label><span>${date}</span></div>
+        </div>
+        ${p.description ? `<div class="modal-desc">${p.description}</div>` : ''}
+        ${p.url ? `<a class="modal-link" href="${p.url}" target="_blank">Otwórz stronę produktu ↗</a>` : ''}
+      </div>
+    </div>
+
+    <div class="modal-section-title">Porównanie z konkurencją</div>
+    ${compHtml}
+  `;
     }
-  });
 
-  // chart: avg diff by category, one dataset per shop
-  const allCats = {};
-  json.data.forEach(shop=>{
-    (shop.by_category||[]).forEach(r=>{
-      if(!allCats[r.category])allCats[r.category]={};
-      allCats[r.category][shop.shop_label]=parseFloat(r.avg_diff);
+    function closeModal(e) {
+        if (e.target === document.getElementById('modalBackdrop')) closeModalDirect();
+    }
+
+    function closeModalDirect() {
+        document.getElementById('modalBackdrop').classList.remove('open');
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeModalDirect();
     });
-  });
-  const catKeys    = Object.keys(allCats);
-  const shopNames  = json.data.map(s=>s.shop_label);
-  const shopColors = ['#00c2ff','#a78bfa'];
 
-  dc('cmpCat');
-  charts.cmpCat = new Chart(document.getElementById('chartCmpCategory'),{
-    type:'bar',
-    data:{
-      labels: catKeys,
-      datasets: shopNames.map((name,i)=>({
-        label: name,
-        data:  catKeys.map(cat=>allCats[cat][name]??null),
-        backgroundColor: shopColors[i]+'bb',
-        borderColor:     shopColors[i],
-        borderWidth:1, borderRadius:4,
-      }))
-    },
-    options:{
-      plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},
-      scales:{
-        x:{grid:{display:false}},
-        y:{grid:{color:'#1e2535'},ticks:{callback:v=>(v>0?'+':'')+v+' zł'}}
-      }
+    // --- NOWE FUNKCJE OBSŁUGUJĄCE PŁASKI RAPORT Z PANDAS --- //
+
+    async function loadComparison() {
+        // Optymalizacja: Pobieramy dane z API tylko raz dla sesji, żeby filtrowanie było natychmiastowe
+        if (!window.rawReportData) {
+            document.getElementById('cmpTableWrap').innerHTML = '<div class="spinner">Ładowanie raportu z bazy…</div>';
+            const json = await fetch('/api/report').then(r => r.json());
+
+            if (!json.ok) {
+                document.getElementById('cmpTableWrap').innerHTML = `<p class="no-data" style="color:var(--error)">${json.error}</p>`;
+                document.getElementById('cmpSummaryWrap').innerHTML = '';
+                return;
+            }
+            window.rawReportData = json.data;
+        }
+
+        let transformedRows = [];
+        let summaryStats = {};
+        let availableShops = new Set();
+
+        // Magia Unpivota: Przerabiamy szeroki wiersz na osobne porównania dla każdego sklepu
+        window.rawReportData.forEach(row => {
+            Object.keys(row).forEach(key => {
+                if (key.endsWith('_price') && key !== 'client_price' && row[key] !== null) {
+                    let shopId = key.replace('_price', '');
+                    availableShops.add(shopId);
+
+                    let ourPrice = parseFloat(row.client_price);
+                    let compPrice = parseFloat(row[key]);
+                    let diffAbs = compPrice - ourPrice;
+                    let diffPct = compPrice ? (diffAbs / compPrice) * 100 : 0;
+
+                    transformedRows.push({
+                        sku: row.client_sku,
+                        our_name: row.client_name,
+                        category: row.category || 'Brak',
+                        our_effective: ourPrice,
+                        shop_label: shopId.toUpperCase(),
+                        shop_table: shopId,
+                        comp_name: row[`${shopId}_name`] || 'Znaleziony produkt',
+                        comp_effective: compPrice,
+                        diff_abs: diffAbs,
+                        diff_pct: diffPct,
+                        comp_url: row[`${shopId}_url`]
+                    });
+
+                    // Zbieranie statystyk KPI w locie
+                    if (!summaryStats[shopId]) {
+                        summaryStats[shopId] = { total: 0, cheaper: 0, exp: 0, eq: 0, sumDiff: 0 };
+                    }
+                    summaryStats[shopId].total++;
+                    summaryStats[shopId].sumDiff += diffAbs;
+                    if (diffAbs > 0) summaryStats[shopId].cheaper++;
+                    else if (diffAbs < 0) summaryStats[shopId].exp++;
+                    else summaryStats[shopId].eq++;
+                }
+            });
+        });
+
+        // Dynamiczne wypełnienie listy rozwijanej sklepów (odrzucamy stare statyczne opcje z HTML)
+        const shopSelect = document.getElementById('cmpFilterShop');
+        if (shopSelect.options.length <= 3) {
+            const currentSelected = shopSelect.value;
+            shopSelect.innerHTML = '<option value="">Wszystkie sklepy</option>';
+            availableShops.forEach(shop => {
+                const o = document.createElement('option');
+                o.value = shop;
+                o.textContent = shop.toUpperCase();
+                shopSelect.appendChild(o);
+            });
+            shopSelect.value = currentSelected;
+        }
+
+        // Filtrowanie wyciągnięte z rozwijanych pól
+        const shopFilter = document.getElementById('cmpFilterShop').value;
+        const diffFilter = document.getElementById('cmpFilterDiff').value;
+
+        let filteredRows = transformedRows;
+        if (shopFilter) filteredRows = filteredRows.filter(r => r.shop_table === shopFilter);
+        if (diffFilter === 'cheaper') filteredRows = filteredRows.filter(r => r.diff_abs > 0);
+        else if (diffFilter === 'expensive') filteredRows = filteredRows.filter(r => r.diff_abs < 0);
+        else if (diffFilter === 'equal') filteredRows = filteredRows.filter(r => r.diff_abs === 0);
+
+        cmpData = filteredRows;
+        renderCmpTable(cmpData);
+        renderSummaryKPI(summaryStats);
     }
-  });
-}
 
-async function loadComparison() {
-  const p = new URLSearchParams();
-  const shop = document.getElementById('cmpFilterShop').value;
-  const cat  = document.getElementById('cmpFilterCategory').value;
-  const diff = document.getElementById('cmpFilterDiff').value;
-  if (shop) p.set('shop', shop);
-  if (cat)  p.set('category', cat);
-  if (diff) p.set('diff', diff);
+    // Dynamiczne kafelki KPI
+    function renderSummaryKPI(stats) {
+        let html = '';
+        Object.keys(stats).forEach(shopId => {
+            let s = stats[shopId];
+            let avg = s.total > 0 ? (s.sumDiff / s.total) : 0;
+            let avgFmt = (avg > 0 ? '+' : '') + avg.toFixed(2) + ' zł';
+            let avgClass = avg > 0 ? 'cheaper' : avg < 0 ? 'expensive' : 'equal';
 
-  document.getElementById('cmpTableWrap').innerHTML='<div class="spinner">Ładowanie…</div>';
-  const json = await fetch('/api/comparison?'+p).then(r=>r.json());
-  if (!json.ok){document.getElementById('cmpTableWrap').innerHTML=`<p class="no-data">Błąd: ${json.error}</p>`;return;}
-  cmpData = json.data;
-  renderCmpTable(cmpData);
-}
+            html += `
+            <div class="shop-section-label">Konkurencja: ${shopId.toUpperCase()}</div>
+            <div class="cmp-kpi-row">
+                <div class="cmp-kpi"><label>Zmapowane pary</label><div class="val">${s.total}</div><div class="hint">produktów</div></div>
+                <div class="cmp-kpi"><label>Jesteśmy tańsi</label><div class="val cheaper">${s.cheaper}</div><div class="hint">produktów</div></div>
+                <div class="cmp-kpi"><label>Jesteśmy drożsi</label><div class="val expensive">${s.exp}</div><div class="hint">produktów</div></div>
+                <div class="cmp-kpi"><label>Cena równa</label><div class="val equal">${s.eq}</div><div class="hint">produktów</div></div>
+                <div class="cmp-kpi"><label>Śr. różnica ceny</label><div class="val ${avgClass}">${avgFmt}</div><div class="hint">+ = my tańsi</div></div>
+            </div>`;
+        });
 
-function renderCmpTable(rows) {
-  document.getElementById('cmpCount').textContent = rows.length ? rows.length+' par' : '';
-  if (!rows.length){
-    document.getElementById('cmpTableWrap').innerHTML='<p class="no-data">Brak zmapowanych produktów dla wybranych filtrów.</p>';
-    return;
-  }
+        if (Object.keys(stats).length === 0) {
+            html = '<p class="no-data">Brak danych dla wybranego raportu.</p>';
+        }
+        document.getElementById('cmpSummaryWrap').innerHTML = html;
+    }
 
-  const maxDiff = Math.max(...rows.map(r=>Math.abs(parseFloat(r.diff_abs)||0)), 1);
-  const cols=[
-    {key:'sku',            label:'SKU'},
-    {key:'our_name',       label:'Nasz produkt'},
-    {key:'category',       label:'Kategoria'},
-    {key:'our_effective',  label:'Nasza cena'},
-    {key:'shop_label',     label:'Sklep'},
-    {key:'comp_name',      label:'Produkt konkurenta'},
-    {key:'comp_effective', label:'Cena konkurenta'},
-    {key:'diff_abs',       label:'Różnica (zł)'},
-    {key:'diff_pct',       label:'Różnica (%)'},
-  ];
+    function renderCmpTable(rows) {
+        document.getElementById('cmpCount').textContent = rows.length ? rows.length + ' par' : '';
+        if (!rows.length) {
+            document.getElementById('cmpTableWrap').innerHTML = '<p class="no-data">Brak zmapowanych produktów dla wybranych filtrów.</p>';
+            return;
+        }
+        const maxDiff = Math.max(...rows.map(r => Math.abs(parseFloat(r.diff_abs) || 0)), 1);
+        const cols = [
+            {key: 'sku', label: 'SKU'},
+            {key: 'our_name', label: 'Nasz produkt'},
+            {key: 'category', label: 'Kategoria'},
+            {key: 'our_effective', label: 'Nasza cena'},
+            {key: 'shop_label', label: 'Sklep'},
+            {key: 'comp_name', label: 'Produkt konkurenta'},
+            {key: 'comp_effective', label: 'Cena konkurenta'},
+            {key: 'diff_abs', label: 'Różnica (zł)'},
+            {key: 'diff_pct', label: 'Różnica (%)'},
+        ];
+        let html = '<table><thead><tr>';
+        cols.forEach(c => {
+            const icon = cmpSortCol === c.key ? (cmpSortDir === 'asc' ? '▲' : '▼') : '⇅';
+            html += `<th onclick="changeCmpSort('${c.key}')">${c.label} <span class="sort-icon">${icon}</span></th>`;
+        });
+        html += '</tr></thead><tbody>';
 
-  let html='<table><thead><tr>';
-  cols.forEach(c=>{
-    const icon=cmpSortCol===c.key?(cmpSortDir==='asc'?'▲':'▼'):'⇅';
-    html+=`<th onclick="changeCmpSort('${c.key}')">${c.label} <span class="sort-icon">${icon}</span></th>`;
-  });
-  html+='</tr></thead><tbody>';
+        rows.forEach(r => {
+            const dAbs = parseFloat(r.diff_abs) || 0;
+            const dPct = parseFloat(r.diff_pct) || 0;
+            const dCls = dAbs > 0 ? 'diff-pos' : dAbs < 0 ? 'diff-neg' : 'diff-zero';
+            const dLbl = dAbs > 0 ? `+${dAbs.toFixed(2)} zł` : dAbs < 0 ? `${dAbs.toFixed(2)} zł` : '0.00 zł';
+            const pLbl = dAbs > 0 ? `+${dPct.toFixed(1)}%` : dAbs < 0 ? `${dPct.toFixed(1)}%` : '0%';
+            const tip = dAbs > 0 ? 'Jesteśmy tańsi' : dAbs < 0 ? 'Jesteśmy drożsi' : 'Cena równa';
+            const bCol = dAbs > 0 ? '#47f56f' : '#d24014';
+            const bW = Math.round(Math.abs(dAbs) / maxDiff * 100);
 
-  rows.forEach(r=>{
-    const dAbs = parseFloat(r.diff_abs)||0;
-    const dPct = parseFloat(r.diff_pct)||0;
-    const dc_  = dAbs>0?'diff-pos':dAbs<0?'diff-neg':'diff-zero';
-    const dLbl = dAbs>0?`+${dAbs.toFixed(2)} zł`:dAbs<0?`${dAbs.toFixed(2)} zł`:'0.00 zł';
-    const pLbl = dAbs>0?`+${dPct.toFixed(1)}%`:dAbs<0?`${dPct.toFixed(1)}%`:'0%';
-    const tip  = dAbs>0?'Jesteśmy tańsi':dAbs<0?'Jesteśmy drożsi':'Cena równa';
-    const bCol = dAbs>0?'#4fffb0':'#ff6b9d';
-    const bW   = Math.round(Math.abs(dAbs)/maxDiff*100);
-    const sClass = r.shop_table==='products_shop1'?'badge-shop1':'badge-shop2';
-    const link = r.comp_url
-      ?`<a href="${r.comp_url}" target="_blank" style="color:var(--muted);font-size:.75rem;margin-left:4px" title="Otwórz stronę produktu">↗</a>`:'';
+            // Kolorowanie skryptu zależy od sklepu
+            const sCls = r.shop_table.length % 2 === 0 ? 'badge-shop1' : 'badge-shop2';
 
-    html+=`<tr title="${tip}">
-      <td style="font-size:.72rem;color:var(--muted)">${r.sku??'—'}</td>
-      <td>${r.our_name??'—'}</td>
-      <td><span class="badge">${r.category??'—'}</span></td>
+            const link = r.comp_url ? `<a href="${r.comp_url}" target="_blank" style="color:var(--muted);font-size:.75rem;margin-left:4px" title="Otwórz u konkurenta">↗</a>` : '';
+            html += `<tr title="${tip}">
+      <td style="font-size:.72rem;color:var(--muted)">${r.sku ?? '—'}</td>
+      <td>${r.our_name ?? '—'}</td>
+      <td><span class="badge">${r.category ?? '—'}</span></td>
       <td class="price-cell price-our">${fmt(r.our_effective)}</td>
-      <td><span class="badge ${sClass}">${r.shop_label}</span></td>
-      <td>${r.comp_name??'—'}${link}</td>
+      <td><span class="badge ${sCls}">${r.shop_label}</span></td>
+      <td>${r.comp_name ?? '—'}${link}</td>
       <td class="price-cell price-comp">${fmt(r.comp_effective)}</td>
-      <td class="${dc_}">
+      <td class="${dCls}">
         <div class="bar-wrap">
           <span style="min-width:76px">${dLbl}</span>
           <div class="bar-track"><div class="bar-fill" style="width:${bW}%;background:${bCol}"></div></div>
         </div>
       </td>
-      <td class="${dc_}">${pLbl}</td>
+      <td class="${dCls}">${pLbl}</td>
     </tr>`;
-  });
-  html+='</tbody></table>';
-  document.getElementById('cmpTableWrap').innerHTML=html;
-}
+        });
+        html += '</tbody></table>';
+        document.getElementById('cmpTableWrap').innerHTML = html;
+    }
 
-function changeCmpSort(col) {
-  if(cmpSortCol===col)cmpSortDir=cmpSortDir==='asc'?'desc':'asc';
-  else{cmpSortCol=col;cmpSortDir=col==='diff_abs'?'desc':'asc';}
-  const sorted=[...cmpData].sort((a,b)=>{
-    let va=a[col]??'', vb=b[col]??'';
-    if(!isNaN(parseFloat(va))&&!isNaN(parseFloat(vb))){va=parseFloat(va);vb=parseFloat(vb);}
-    return cmpSortDir==='asc'?(va<vb?-1:va>vb?1:0):(va>vb?-1:va<vb?1:0);
-  });
-  renderCmpTable(sorted);
-}
+    function changeCmpSort(col) {
+        if (cmpSortCol === col) cmpSortDir = cmpSortDir === 'asc' ? 'desc' : 'asc';
+        else {
+            cmpSortCol = col;
+            cmpSortDir = col === 'diff_abs' ? 'desc' : 'asc';
+        }
+        const sorted = [...cmpData].sort((a, b) => {
+            let va = a[col] ?? '', vb = b[col] ?? '';
+            if (!isNaN(parseFloat(va)) && !isNaN(parseFloat(vb))) {
+                va = parseFloat(va);
+                vb = parseFloat(vb);
+            }
+            return cmpSortDir === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+        });
+        renderCmpTable(sorted);
+    }
 
-function resetCmpFilters(){
-  ['cmpFilterShop','cmpFilterCategory','cmpFilterDiff'].forEach(id=>document.getElementById(id).value='');
-  cmpSortCol='diff_abs';cmpSortDir='desc';
-  loadComparison();
-}
+    function resetCmpFilters() {
+        ['cmpFilterShop', 'cmpFilterCategory', 'cmpFilterDiff'].forEach(id => document.getElementById(id).value = '');
+        cmpSortCol = 'diff_abs';
+        cmpSortDir = 'desc';
+        loadComparison();
+    }
 
-//  INIT
-loadStats();
-loadDropdowns();
-loadProducts();
+    loadStats();
+    loadDropdowns();
+    loadProducts();
 </script>
 </body>
 </html>

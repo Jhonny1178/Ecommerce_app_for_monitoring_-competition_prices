@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS clients (
     id                      SERIAL PRIMARY KEY,
     name                    TEXT NOT NULL,
     slug                    TEXT UNIQUE NOT NULL,
+    store_prefix            TEXT UNIQUE NOT NULL,
     is_active               BOOLEAN DEFAULT TRUE,
     created_at              TIMESTAMP DEFAULT NOW(),
 
