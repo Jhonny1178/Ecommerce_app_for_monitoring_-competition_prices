@@ -3,17 +3,18 @@ from dotenv import load_dotenv
 import pandas as pd
 from rapidfuzz import fuzz
 from sqlalchemy import create_engine
-
 load_dotenv()
-db_password = os.getenv("DB_PASSWORD")
-
-
+db_password = os.getenv("APP_DB_PASSWORD")
+db_name = os.getenv("APP_DB_NAME")
+db_user_name = os.getenv("APP_DB_USER")
+db_port = os.getenv("APP_DB_PORT")
+db_host = os.getenv("APP_DB_HOST")
 class MultiTenantReportGenerator:
 
     def __init__(self, config: dict):
 
         db_url = (
-            f"postgresql://postgres:{db_password}@localhost:5432/ecommerce_data"
+            f"postgresql://{db_user_name}:{db_password}@{db_host}:{db_port}/{db_name}"
         )
         self.engine = create_engine(db_url)
 
@@ -134,33 +135,3 @@ class MultiTenantReportGenerator:
         return final_df
 
 
-# =====================================================================
-# SYSTEM STEROWANIA: PĘTLA ORKIESTRATORA (Obsługa wielu klientów)
-# =====================================================================
-if __name__ == "__main__":
-
-    # Wyobraź sobie, że tę listę konfiguracji pobierasz jednym zapytaniem SQL z tabeli metadanych rano
-    harmonogram_poranny = [
-        {
-            "client_table": "sklep1",  # Tabela naszej pierwszej klientki
-            "competitor_table": "sklep1_competitors",  # Dedykowana tabela z jej scraperów
-            "target_table": "sklep1_report_analysis",  # Wynikowy raport dla niej
-            "competitor_stores": ["podpierzyna", "calavado", "jmbdesing"],
-        },
-        {
-            "client_table": "sklep2_meble",  # Inny klient (np. z branży meblarskiej)
-            "competitor_table": "sklep2_meble_competitors",  # Tabela konkurencji dla mebli
-            "target_table": "sklep2_meble_report_analysis",  # Wynikowy raport meblowy
-            "competitor_stores": ["ikea", "brw", "agatameble"],
-        },
-    ]
-
-    # Uruchomienie pętli dla wszystkich aktywnych klientów z bazy
-    for klient_config in harmonogram_poranny:
-        generator = MultiTenantReportGenerator(config=klient_config)
-        result_df = generator.generate_report(
-            name_threshold=90.0, color_threshold=80.0, maker_threshold=80.0
-        )
-        print("-" * 60)
-
-    print("\n✅ Wszystkie dedykowane raporty zostały pomyślnie wygenerowane.")
