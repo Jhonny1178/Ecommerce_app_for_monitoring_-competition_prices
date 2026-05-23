@@ -17,8 +17,8 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "super-tajny-klucz")
 
 DB_CONFIG = {
-    "host": os.environ.get("localhost"),
-    "port": os.environ.get("APP_DB_PORT", 5434),
+    "host": "localhost",
+    "port":  5434,
     "dbname": os.environ.get("APP_DB_NAME", "ecommerce_data"),
     "user": os.environ.get("APP_DB_USER", "postgres"),
     "password": os.environ.get("APP_DB_PASSWORD", "***"),
@@ -153,12 +153,10 @@ def register():
                     if cur.fetchone():
                         error = "Sklep o takiej nazwie już istnieje!"
                     else:
-                        # 3. Dodaj klienta
-                        # FIX: dodajemy store_prefix (wymagane NOT NULL) = slug
-                        # source_type jest NOT NULL w schemacie więc też podajemy
+
                         cur.execute("""
                             INSERT INTO clients (name, slug, store_prefix, source_type, field_mapping)
-                            VALUES (%s, %s, %s, %s, %s)
+                            VALUES (%s, %s, %s, %s, %s::jsonb)
                             RETURNING id
                         """, (store_name, slug, slug, 'url', '{}'))
                         client_id = cur.fetchone()[0]
@@ -169,50 +167,48 @@ def register():
                             VALUES (%s, %s, %s, %s)
                         """, (username, hashed, False, client_id))
 
-                        # 5. Utwórz tabelę produktów klienta
-                        # FIX: pełna lista kolumn zgodna z pipeline (size, color, manufacturer)
+                        # 5. Tworzenie tabel (pozostaje bez zmian)
                         table_products = f"{slug}_products"
                         cur.execute(f"""
                             CREATE TABLE IF NOT EXISTS {table_products} (
-                                id               SERIAL PRIMARY KEY,
-                                sku              TEXT NOT NULL,
-                                name             TEXT,
-                                size             VARCHAR(50),
-                                color            VARCHAR(50),
-                                manufacturer     VARCHAR(50),
-                                price_normal     FLOAT,
-                                price_special    FLOAT,
-                                url              TEXT,
-                                category         VARCHAR(100),
-                                store            VARCHAR(50),
-                                availability     VARCHAR(50),
-                                image            TEXT,
-                                description      TEXT,
+                                id SERIAL PRIMARY KEY,
+                                sku TEXT NOT NULL,
+                                name TEXT,
+                                size VARCHAR(50),
+                                color VARCHAR(50),
+                                manufacturer VARCHAR(50),
+                                price_normal FLOAT,
+                                price_special FLOAT,
+                                url TEXT,
+                                category VARCHAR(100),
+                                store VARCHAR(50),
+                                availability VARCHAR(50),
+                                image TEXT,
+                                description TEXT,
                                 date_of_download TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 UNIQUE (sku, store)
                             );
                         """)
 
-                        # 6. Utwórz tabelę mappingów do konkurencji
-                        mappings_table = f"{slug}_product_mappings"
-                        cur.execute(f"""
-                            CREATE TABLE IF NOT EXISTS {mappings_table} (
-                                id               SERIAL PRIMARY KEY,
-                                our_product_id   INTEGER REFERENCES {table_products}(id) ON DELETE CASCADE,
-                                competitor_table TEXT NOT NULL,
-                                competitor_id    INTEGER NOT NULL
-                            );
-                        """)
+                        # mappings_table = f"{slug}_product_mappings"
+                        # cur.execute(f"""
+                        #     CREATE TABLE IF NOT EXISTS {mappings_table} (
+                        #         id SERIAL PRIMARY KEY,
+                        #         our_product_id INTEGER REFERENCES {table_products}(id) ON DELETE CASCADE,
+                        #         competitor_table TEXT NOT NULL,
+                        #         competitor_id INTEGER NOT NULL
+                        #     );
+                        # """)
 
                         conn.commit()
-                        message = f"Sklep '{store_name}' zarejestrowany! Możesz się teraz zalogować."
+                        message = f"Sklep '{store_name}' zarejestrowany pomyślnie! Możesz się zalogować."
 
                 cur.close()
             except Exception as e:
                 if conn:
                     conn.rollback()
                 print(f"REGISTER ERROR: {e}")
-                error = f"Błąd bazy danych: {e}"
+                error = f"Błąd bazy danych: {str(e)}"
             finally:
                 if conn:
                     conn.close()
@@ -348,71 +344,74 @@ def api_product_detail(product_id):
 @app.route("/api/stats")
 @login_required
 def api_stats():
+    prefix = session.get("store_prefix", "default")
+    products_table = f"{prefix}_products"
+    report_table   = f"{prefix}_report"
+
     try:
         conn = get_db()
-        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        table_products = f"{session.get('store_prefix', 'default')}_products"
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+        # Podstawowe statystyki z tabeli produktów
         cur.execute(f"""
-            SELECT COUNT(*) AS total,
-                   AVG(price_normal) AS avg_price_normal,
-                   AVG(price_special) AS avg_price_special,
-                   AVG(price_normal - COALESCE(price_special, price_normal)) AS avg_discount,
-                   COUNT(DISTINCT category)     AS total_categories,
-                   COUNT(DISTINCT store)        AS total_stores,
-                   COUNT(DISTINCT manufacturer) AS total_manufacturers
-            FROM {table_products}
+            SELECT 
+                COUNT(*) AS total,
+                COUNT(DISTINCT category) AS total_categories,
+                COUNT(DISTINCT store) AS total_stores,
+                COUNT(DISTINCT manufacturer) AS total_manufacturers,
+                ROUND(AVG(price_normal)::numeric, 2) AS avg_price_normal,
+                ROUND(AVG(price_special)::numeric, 2) AS avg_price_special,
+                ROUND(AVG(price_normal - price_special)::numeric, 2) AS avg_discount
+            FROM {products_table}
         """)
-        summary = dict(cur.fetchone())
+        summary = cur.fetchone() or {}
 
+        # Grupowanie po kategorii
         cur.execute(f"""
-            SELECT category, COUNT(*) AS count,
-                   AVG(price_normal) AS avg_price,
-                   MIN(price_normal) AS min_price,
-                   MAX(price_normal) AS max_price
-            FROM {table_products}
+            SELECT category, COUNT(*) as count, 
+                   ROUND(AVG(price_normal)::numeric, 2) as avg_price
+            FROM {products_table}
             GROUP BY category ORDER BY count DESC
         """)
-        by_category = [dict(r) for r in cur.fetchall()]
+        by_category = cur.fetchall()
 
+        # Grupowanie po sklepie
         cur.execute(f"""
-            SELECT store, COUNT(*) AS count, AVG(price_normal) AS avg_price
-            FROM {table_products} GROUP BY store ORDER BY count DESC
+            SELECT store, COUNT(*) as count 
+            FROM {products_table} 
+            GROUP BY store ORDER BY count DESC
         """)
-        by_store = [dict(r) for r in cur.fetchall()]
+        by_store = cur.fetchall()
 
+        # Dostępność
         cur.execute(f"""
-            SELECT availability, COUNT(*) AS count
-            FROM {table_products} GROUP BY availability ORDER BY count DESC
+            SELECT availability, COUNT(*) as count 
+            FROM {products_table} 
+            GROUP BY availability
         """)
-        by_availability = [dict(r) for r in cur.fetchall()]
+        by_availability = cur.fetchall()
 
-        cur.execute(f"""
-            SELECT manufacturer, COUNT(*) AS count, AVG(price_normal) AS avg_price
-            FROM {table_products} GROUP BY manufacturer ORDER BY count DESC LIMIT 10
-        """)
-        by_manufacturer = [dict(r) for r in cur.fetchall()]
-
-        cur.execute(f"""
-            SELECT ROUND(((price_normal - COALESCE(price_special, price_normal))
-                          / NULLIF(price_normal,0)*100)::numeric, 0) AS discount_pct,
-                   COUNT(*) AS count
-            FROM {table_products}
-            WHERE price_special IS NOT NULL AND price_special < price_normal
-            GROUP BY discount_pct ORDER BY discount_pct
-        """)
-        discount_dist = [dict(r) for r in cur.fetchall()]
+        # Sprawdź czy raport istnieje i ile ma wierszy
+        report_count = 0
+        cur.execute("""
+            SELECT EXISTS(SELECT FROM information_schema.tables 
+                          WHERE table_name = %s)
+        """, (report_table,))
+        if cur.fetchone()['exists']:
+            cur.execute(f"SELECT COUNT(*) FROM {report_table}")
+            report_count = cur.fetchone()[0]
 
         cur.close(); conn.close()
+
         return jsonify({
             "ok": True,
-            "summary": summary,
-            "by_category": by_category,
-            "by_store": by_store,
-            "by_availability": by_availability,
-            "by_manufacturer": by_manufacturer,
-            "discount_dist": discount_dist
+            "summary": dict(summary),
+            "by_category": [dict(r) for r in by_category],
+            "by_store": [dict(r) for r in by_store],
+            "by_availability": [dict(r) for r in by_availability],
+            "report_rows": report_count
         })
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 

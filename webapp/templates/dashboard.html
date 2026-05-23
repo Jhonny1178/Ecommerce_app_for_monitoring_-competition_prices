@@ -629,6 +629,13 @@
             loadComparison();
         }
     }
+    async function loadReport() {
+    const res = await fetch('/api/report').then(r => r.json());
+    if (res.ok) {
+        console.log("Raport sklepowy:", res.data);
+        // tutaj render do tabeli lub KPI
+        }
+    }
 
     // OVERVIEW
     async function loadStats() {

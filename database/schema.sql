@@ -21,7 +21,6 @@ CREATE TABLE IF NOT EXISTS clients (
     match_maker_threshold   FLOAT DEFAULT 80.0
 );
 
--- 2. Tabela użytkowników (zastępuje starą jeśli istnieje)
 CREATE TABLE IF NOT EXISTS users (
     id            SERIAL PRIMARY KEY,
     username      TEXT UNIQUE NOT NULL,
@@ -52,11 +51,12 @@ ON CONFLICT (username) DO NOTHING;
 
 -- 5. Przykładowy klient testowy
 INSERT INTO clients (
-    name, slug, is_active,
+    name, slug, store_prefix, is_active,
     source_type, source_path, file_format,
     field_mapping, spiders_to_run
 ) VALUES (
     'Sklep Testowy',
+    'sklep_testowy',
     'sklep_testowy',
     TRUE,
     'url',
@@ -71,7 +71,7 @@ INSERT INTO clients (
         "CENA":       "price_normal",
         "CENA_PROMO": "price_special",
         "OPIS":       "description"
-    }',
+    }'::jsonb,
     ARRAY['Calavado', 'jmbdesing', 'pod_pierzyna']
 )
 ON CONFLICT (slug) DO NOTHING;
