@@ -18,3 +18,5 @@ ENV/
 data/
 models/
 __pycache__/
+airflow/logs/
+airflow/config/airflow.cfg

@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin – Panel Analityczny</title>
+    <link rel="stylesheet" href="../static/admin.css">
+    <style>
+        /* sekcja upload */
+        .upload-card {
+            background: #f3f3f3;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 32px;
+            margin-bottom: 28px;
+        }
+
+        .upload-card h2 {
+            margin: 0 0 6px;
+            font-size: 1rem;
+        }
+
+        .upload-card p {
+            margin: 0 0 20px;
+            color: var(--muted);
+            font-size: .82rem;
+        }
+
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 10px;
+            padding: 36px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .2s, background .2s;
+            position: relative;
+        }
+
+        .upload-zone:hover, .upload-zone.drag-over {
+            border-color: var(--accent);
+            background: rgba(79, 255, 176, .04);
+        }
+
+        .upload-zone input[type=file] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+
+        .upload-zone .upload-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .upload-zone .upload-hint {
+            color: var(--muted);
+            font-size: .8rem;
+            margin-top: 6px;
+        }
+
+        .upload-zone .file-chosen {
+            color: var(--accent);
+            font-size: .88rem;
+            margin-top: 8px;
+            font-weight: 600;
+        }
+
+        .upload-options {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+
+        .upload-options label {
+            font-size: .82rem;
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .upload-options input[type=radio] {
+            accent-color: var(--accent);
+        }
+
+        /* sekcja preview */
+        .preview-wrap {
+            margin-top: 24px;
+            display: none;
+        }
+
+        .preview-wrap.visible {
+            display: block;
+        }
+
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .preview-header h3 {
+            margin: 0;
+            font-size: .95rem;
+        }
+
+        .preview-header .preview-meta {
+            color: var(--muted);
+            font-size: .8rem;
+        }
+
+        .preview-scroll {
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            max-height: 340px;
+            overflow-y: auto;
+        }
+
+        .preview-scroll table {
+            min-width: 900px;
+        }
+
+        .preview-scroll thead th {
+            position: sticky;
+            top: 0;
+            background: #e3e3e3;
+            z-index: 1;
+        }
+
+        .confirm-row {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .confirm-row .result-msg {
+            font-size: .83rem;
+            color: var(--muted);
+        }
+
+        .confirm-row .result-msg.ok {
+            color: var(--accent);
+        }
+
+        .confirm-row .result-msg.err {
+            color: var(--error);
+        }
+
+        /* detale produktow */
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, .65);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-backdrop.open {
+            display: flex;
+        }
+
+        .modal {
+            background: #dedede;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            width: min(720px, 94vw);
+            max-height: 88vh;
+            overflow-y: auto;
+            padding: 32px 36px;
+            position: relative;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 18px;
+            right: 22px;
+            background: none;
+            border: none;
+            color: var(--muted);
+            font-size: 1.4rem;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text);
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="nav-logo">Analityka</div>
+    <div class="nav-sub">Panel zarządzania</div>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/admin" class="active">Admin</a>
+    <div class="nav-spacer"></div>
+    <div class="nav-user">
+        <strong>{{ username }}</strong>
+        <span style="color:var(--accent);font-size:.68rem;">ADMIN</span>
+        <br><br>
+        <a href="/logout" style="color:var(--error)">Wyloguj →</a>
+    </div>
+</nav>
+
+<main>
+    <h1>Panel administratora</h1>
+    <p class="page-sub">Dodawaj, edytuj i usuwaj produkty w bazie danych</p>
+
+    <!-- sekcja do uploadowania -->
+    <div class="upload-card">
+        <h2>Import z pliku CSV / XML</h2>
+        <p>Przeciągnij plik lub kliknij, żeby wybrać. Obsługiwane kolumny: sku, name, category, size, color,
+            manufacturer, store, price_normal, price_special, availability, url, image, description.</p>
+
+        <div class="upload-zone" id="uploadZone">
+            <input type="file" id="fileInput" accept=".csv,.xml" onchange="onFileChosen(this)">
+            <div class="upload-icon">📂</div>
+            <div>Upuść plik <strong>.csv</strong> lub <strong>.xml</strong> tutaj</div>
+            <div class="upload-hint">lub kliknij, żeby wybrać z dysku</div>
+            <div class="file-chosen" id="fileChosen"></div>
+        </div>
+
+        <div class="upload-options">
+            <label><input type="radio" name="uploadMode" value="insert" checked> Wstaw nowe (pomiń duplikaty
+                SKU)</label>
+            <label><input type="radio" name="uploadMode" value="upsert"> Wstaw + aktualizuj istniejące (upsert po
+                SKU)</label>
+            <button class="btn" id="previewBtn" onclick="doPreview()" style="margin-left:auto" disabled>Podgląd →
+            </button>
+        </div>
+
+        <!-- preview -->
+        <div class="preview-wrap" id="previewWrap">
+            <div class="preview-header">
+                <h3>Podgląd danych</h3>
+                <span class="preview-meta" id="previewMeta"></span>
+            </div>
+            <div class="preview-scroll" id="previewScroll"></div>
+            <div class="confirm-row">
+                <button class="btn" id="confirmBtn" onclick="doConfirm()">✓ Importuj do bazy</button>
+                <button class="btn-ghost" onclick="resetUpload()">Anuluj</button>
+                <span class="result-msg" id="importResult"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- formularze i tabelki -->
+    <div class="admin-grid">
+
+        <!-- formularz -->
+        <div class="form-card">
+            <span class="mode-label mode-add" id="modeLabel">Nowy produkt</span>
+            <h2 id="formTitle">Dodaj produkt</h2>
+            <input type="hidden" id="editId">
+
+            <label>SKU</label>
+            <input type="text" id="fSku" placeholder="np. MAT-160-WH">
+
+            <label>Nazwa produktu</label>
+            <input type="text" id="fName" placeholder="np. Materac Premium 160x200">
+
+            <label>Kategoria</label>
+            <input type="text" id="fCategory" placeholder="np. Materace">
+
+            <label>Rozmiar</label>
+            <input type="text" id="fSize" placeholder="np. 160x200">
+
+            <label>Kolor</label>
+            <input type="text" id="fColor" placeholder="np. Biały">
+
+            <label>Producent</label>
+            <input type="text" id="fManufacturer" placeholder="np. SleepMaster">
+
+            <label>Sklep</label>
+            <input type="text" id="fStore" placeholder="np. Ikea">
+
+            <label>Cena normalna (zł)</label>
+            <input type="number" id="fPriceNormal" placeholder="0.00" step="0.01" min="0">
+
+            <label>Cena promocyjna (zł)</label>
+            <input type="number" id="fPriceSpecial" placeholder="0.00" step="0.01" min="0">
+
+            <label>Dostępność</label>
+            <select id="fAvailability">
+                <option value="">— wybierz —</option>
+                <option value="Dostępny">Dostępny</option>
+                <option value="Mało">Mało</option>
+                <option value="Niedostępny">Niedostępny</option>
+            </select>
+
+            <label>URL produktu</label>
+            <input type="text" id="fUrl" placeholder="https://…">
+
+            <label>URL obrazka</label>
+            <input type="text" id="fImage" placeholder="https://…">
+
+            <label>Opis</label>
+            <textarea id="fDescription" rows="3" placeholder="Krótki opis produktu…"
+                      style="width:100%;box-sizing:border-box;background:#d9d9d9;border:1px solid var(--border);
+               color:var(--text);border-radius:6px;padding:8px 10px;font-size:.85rem;resize:vertical"></textarea>
+
+            <div class="btn-row">
+                <button class="btn" onclick="submitForm()">Zapisz</button>
+                <button class="btn-ghost" onclick="resetForm()">Anuluj</button>
+            </div>
+        </div>
+
+        <!-- tabelka -->
+        <div class="table-card">
+            <div class="table-header">
+                <h2>Produkty</h2>
+                <input class="search-box" id="search" type="text" placeholder="Szukaj…" oninput="filterTable()">
+            </div>
+            <div id="tableWrap">
+                <div class="spinner">Ładowanie…</div>
+            </div>
+        </div>
+
+    </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    //tabela z produktami
+
+    let allProducts = [];
+
+    async function loadProducts() {
+        const r = await fetch('/api/products?sort=id&order=desc');
+        const json = await r.json();
+        if (!json.ok) {
+            showToast('Błąd ładowania: ' + json.error, 'err');
+            return;
+        }
+        allProducts = json.data;
+        filterTable();
+    }
+
+    function filterTable() {
+        const q = document.getElementById('search').value.toLowerCase();
+        const rows = q
+            ? allProducts.filter(p =>
+                (p.name ?? '').toLowerCase().includes(q) ||
+                (p.sku ?? '').toLowerCase().includes(q) ||
+                (p.category ?? '').toLowerCase().includes(q) ||
+                (p.store ?? '').toLowerCase().includes(q))
+            : allProducts;
+        renderTable(rows);
+    }
+
+    function renderTable(rows) {
+        if (!rows.length) {
+            document.getElementById('tableWrap').innerHTML = '<p style="text-align:center;color:var(--muted);padding:32px">Brak wyników.</p>';
+            return;
+        }
+        let html = `<table><thead><tr>
+    <th>ID</th><th>SKU</th><th>Nazwa</th><th>Kategoria</th><th>Sklep</th>
+    <th>Cena norm.</th><th>Cena prom.</th><th>Dostępność</th><th>Akcje</th>
+  </tr></thead><tbody>`;
+        rows.forEach(p => {
+            const safeName = (p.name ?? '').replace(/'/g, "\\'");
+            const availColor = p.availability === 'Dostępny' ? 'var(--accent)' : p.availability === 'Mało' ? '#ffe66d' : 'var(--error)';
+            html += `<tr id="row-${p.id}">
+      <td style="color:var(--muted)">#${p.id}</td>
+      <td style="font-size:.72rem;color:var(--muted)">${p.sku ?? '—'}</td>
+      <td>${p.name ?? '—'}</td>
+      <td><span class="badge">${p.category ?? '—'}</span></td>
+      <td>${p.store ?? '—'}</td>
+      <td class="price-cell">${p.price_normal != null ? parseFloat(p.price_normal).toFixed(2) + ' zł' : '—'}</td>
+      <td class="price-cell">${p.price_special != null ? parseFloat(p.price_special).toFixed(2) + ' zł' : '—'}</td>
+      <td style="color:${availColor}">${p.availability ?? '—'}</td>
+      <td>
+        <button class="action-btn" onclick="editProduct(${p.id})">Edytuj</button>
+        <button class="action-btn del" onclick="deleteProduct(${p.id}, '${safeName}')">Usuń</button>
+      </td>
+    </tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('tableWrap').innerHTML = html;
+    }
+
+    function editProduct(id) {
+        const p = allProducts.find(x => x.id === id);
+        if (!p) return;
+        document.getElementById('editId').value = p.id;
+        document.getElementById('fSku').value = p.sku ?? '';
+        document.getElementById('fName').value = p.name ?? '';
+        document.getElementById('fCategory').value = p.category ?? '';
+        document.getElementById('fSize').value = p.size ?? '';
+        document.getElementById('fColor').value = p.color ?? '';
+        document.getElementById('fManufacturer').value = p.manufacturer ?? '';
+        document.getElementById('fStore').value = p.store ?? '';
+        document.getElementById('fPriceNormal').value = p.price_normal != null ? parseFloat(p.price_normal).toFixed(2) : '';
+        document.getElementById('fPriceSpecial').value = p.price_special != null ? parseFloat(p.price_special).toFixed(2) : '';
+        document.getElementById('fAvailability').value = p.availability ?? '';
+        document.getElementById('fUrl').value = p.url ?? '';
+        document.getElementById('fImage').value = p.image ?? '';
+        document.getElementById('fDescription').value = p.description ?? '';
+        document.getElementById('formTitle').textContent = 'Edytuj produkt';
+        document.getElementById('modeLabel').textContent = '✏ Edycja';
+        document.getElementById('modeLabel').className = 'mode-label mode-edit';
+        document.querySelectorAll('.editing-row').forEach(r => r.classList.remove('editing-row'));
+        const row = document.getElementById('row-' + id);
+        if (row) row.classList.add('editing-row');
+    }
+
+    function resetForm() {
+        ['editId', 'fSku', 'fName', 'fCategory', 'fSize', 'fColor', 'fManufacturer',
+            'fStore', 'fPriceNormal', 'fPriceSpecial', 'fUrl', 'fImage', 'fDescription']
+            .forEach(id => document.getElementById(id).value = '');
+        document.getElementById('fAvailability').value = '';
+        document.getElementById('formTitle').textContent = 'Dodaj produkt';
+        document.getElementById('modeLabel').textContent = 'Nowy produkt';
+        document.getElementById('modeLabel').className = 'mode-label mode-add';
+        document.querySelectorAll('.editing-row').forEach(r => r.classList.remove('editing-row'));
+    }
+
+    async function submitForm() {
+        const id = document.getElementById('editId').value;
+        const payload = {
+            sku: document.getElementById('fSku').value.trim(),
+            name: document.getElementById('fName').value.trim(),
+            category: document.getElementById('fCategory').value.trim(),
+            size: document.getElementById('fSize').value.trim(),
+            color: document.getElementById('fColor').value.trim(),
+            manufacturer: document.getElementById('fManufacturer').value.trim(),
+            store: document.getElementById('fStore').value.trim(),
+            price_normal: document.getElementById('fPriceNormal').value,
+            price_special: document.getElementById('fPriceSpecial').value,
+            availability: document.getElementById('fAvailability').value,
+            url: document.getElementById('fUrl').value.trim(),
+            image: document.getElementById('fImage').value.trim(),
+            description: document.getElementById('fDescription').value.trim(),
+        };
+        if (!payload.name) {
+            showToast('Nazwa produktu jest wymagana.', 'err');
+            return;
+        }
+        try {
+            let url = '/api/admin/product', method = 'POST';
+            if (id) {
+                url += '/' + id;
+                method = 'PUT';
+            }
+            const r = await fetch(url, {
+                method,
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const json = await r.json();
+            if (json.ok) {
+                showToast(id ? 'Produkt zaktualizowany ✓' : 'Produkt dodany ✓', 'ok');
+                resetForm();
+                loadProducts();
+            } else showToast('Błąd: ' + json.error, 'err');
+        } catch (e) {
+            showToast('Błąd sieci: ' + e, 'err');
+        }
+    }
+
+    async function deleteProduct(id, name) {
+        if (!confirm(`Usunąć produkt „${name}"?`)) return;
+        try {
+            const r = await fetch('/api/admin/product/' + id, {method: 'DELETE'});
+            const json = await r.json();
+            if (json.ok) {
+                showToast('Usunięto ✓', 'ok');
+                loadProducts();
+            } else showToast('Błąd: ' + json.error, 'err');
+        } catch (e) {
+            showToast('Błąd sieci: ' + e, 'err');
+        }
+    }
+
+    function showToast(msg, type) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.className = 'toast show ' + (type || '');
+        setTimeout(() => {
+            t.className = 'toast';
+        }, 3500);
+    }
+
+    // upload plikow
+    let chosenFile = null;
+    let previewedRows = [];
+
+    // drag and drop
+    const zone = document.getElementById('uploadZone');
+    zone.addEventListener('dragover', e => {
+        e.preventDefault();
+        zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        const f = e.dataTransfer.files[0];
+        if (f) setFile(f);
+    });
+
+    function onFileChosen(input) {
+        if (input.files[0]) setFile(input.files[0]);
+    }
+
+    function setFile(f) {
+        chosenFile = f;
+        document.getElementById('fileChosen').textContent = f.name;
+        document.getElementById('previewBtn').disabled = false;
+        // reset any previous preview
+        document.getElementById('previewWrap').classList.remove('visible');
+        document.getElementById('importResult').textContent = '';
+        previewedRows = [];
+    }
+
+    async function doPreview() {
+        if (!chosenFile) return;
+        document.getElementById('previewBtn').disabled = true;
+        document.getElementById('previewBtn').textContent = 'Parsowanie…';
+
+        const fd = new FormData();
+        fd.append('file', chosenFile);
+
+        try {
+            const r = await fetch('/api/admin/upload/preview', {method: 'POST', body: fd});
+            const json = await r.json();
+            if (!json.ok) {
+                showToast('Błąd parsowania: ' + json.error, 'err');
+                return;
+            }
+
+            previewedRows = json.rows;
+            renderPreview(previewedRows);
+            document.getElementById('previewMeta').textContent = `${json.count} wierszy · plik: ${chosenFile.name}`;
+            document.getElementById('previewWrap').classList.add('visible');
+            document.getElementById('importResult').textContent = '';
+        } catch (e) {
+            showToast('Błąd sieci: ' + e, 'err');
+        } finally {
+            document.getElementById('previewBtn').disabled = false;
+            document.getElementById('previewBtn').textContent = 'Podgląd →';
+        }
+    }
+
+    const PREVIEW_COLS = ['sku', 'name', 'category', 'size', 'color', 'manufacturer', 'store', 'price_normal', 'price_special', 'availability'];
+
+    function renderPreview(rows) {
+        if (!rows.length) {
+            document.getElementById('previewScroll').innerHTML = '<p style="padding:16px;color:var(--muted)">Brak danych w pliku.</p>';
+            return;
+        }
+        let html = '<table><thead><tr>' + PREVIEW_COLS.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+        rows.forEach(r => {
+            html += '<tr>' + PREVIEW_COLS.map(c => `<td>${r[c] ?? ''}</td>`).join('') + '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('previewScroll').innerHTML = html;
+    }
+
+    async function doConfirm() {
+        if (!previewedRows.length) return;
+        const mode = document.querySelector('input[name=uploadMode]:checked').value;
+        document.getElementById('confirmBtn').disabled = true;
+        document.getElementById('confirmBtn').textContent = 'Importowanie…';
+        document.getElementById('importResult').textContent = '';
+
+        try {
+            const r = await fetch('/api/admin/upload/confirm', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({rows: previewedRows, mode}),
+            });
+            const json = await r.json();
+            if (json.ok) {
+                const msg = `✓ Wstawiono: ${json.inserted}  |  Zaktualizowano: ${json.updated}  |  Pominięto: ${json.skipped}` +
+                    (json.errors.length ? `  |  Błędy: ${json.errors.length}` : '');
+                const el = document.getElementById('importResult');
+                el.textContent = msg;
+                el.className = 'result-msg ' + (json.errors.length ? 'err' : 'ok');
+                loadProducts();
+                if (json.errors.length) {
+                    console.warn('Upload errors:', json.errors);
+                    showToast(`Import z ${json.errors.length} błędami — szczegóły w konsoli`, 'err');
+                } else {
+                    showToast('Import zakończony ✓', 'ok');
+                }
+            } else {
+                showToast('Błąd importu: ' + json.error, 'err');
+            }
+        } catch (e) {
+            showToast('Błąd sieci: ' + e, 'err');
+        } finally {
+            document.getElementById('confirmBtn').disabled = false;
+            document.getElementById('confirmBtn').textContent = '✓ Importuj do bazy';
+        }
+    }
+
+    function resetUpload() {
+        chosenFile = null;
+        previewedRows = [];
+        document.getElementById('fileInput').value = '';
+        document.getElementById('fileChosen').textContent = '';
+        document.getElementById('previewBtn').disabled = true;
+        document.getElementById('previewWrap').classList.remove('visible');
+        document.getElementById('importResult').textContent = '';
+    }
+
+    loadProducts();
+</script>
+</body>
+</html>
