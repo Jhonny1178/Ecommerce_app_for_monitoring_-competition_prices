@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logowanie – Panel Analityczny</title>
+<link rel="stylesheet" href="../static/login.css">
+</head>
+<body>
+<div class="glow"></div>
+<div class="card">
+  <div class="logo">Analityka<span>/Panel</span></div>
+  <h1>Zaloguj się</h1>
+
+  {% if error %}
+  <div class="error-box">{{ error }}</div>
+  {% endif %}
+
+  <form method="POST">
+    <label for="username">Login</label>
+    <input id="username" name="username" type="text" placeholder="twój login" autocomplete="username" required>
+
+    <label for="password">Hasło</label>
+    <input id="password" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required>
+
+    <button type="submit">Wejdź do panelu →</button>
+  </form>
+
+  <div class="hint">
+    Demo — <code>admin</code> / <code>admin123</code> &nbsp;|&nbsp; <code>user</code> / <code>user123</code>
+  </div>
+
+  <div style="margin-top: 25px; text-align: center;">
+    <a href="{{ url_for('register') }}" style="color: #666; text-decoration: none; font-size: 14px; transition: color 0.3s ease;">
+      Nie masz jeszcze konta? <b style="color: #111;">Zarejestruj swój sklep</b>
+    </a>
+  </div>
+</div>
+</body>
+</html>
