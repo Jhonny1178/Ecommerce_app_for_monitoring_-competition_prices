@@ -10,6 +10,7 @@ import io
 import xml.etree.ElementTree as ET
 from utils import get_db, hash_password, generate_store_prefix, login_required, admin_required
 from routes.products import products_bp
+from routes.auth import auth_bp
 
 load_dotenv()
 
@@ -47,158 +48,6 @@ def generate_store_prefix(name: str) -> str:
     name = re.sub(r'_+', '_', name).strip('_')
     return name
 
-
-# -----------------
-# AUTH & REJESTRACJA
-# -----------------
-
-@app.route("/", methods=["GET", "POST"])
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if "user_id" in session:
-        return redirect(url_for("dashboard"))
-
-    error = None
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        hashed = hash_password(password)
-
-        try:
-            conn = get_db()
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-            # FIX: pobieramy store_prefix wprost z kolumny store_prefix (nie slug)
-            # COALESCE zabezpiecza na wypadek starych rekordów bez store_prefix
-            cur.execute("""
-                SELECT u.*, 
-                       COALESCE(c.store_prefix, c.slug, 'default') AS store_prefix
-                FROM users u
-                LEFT JOIN clients c ON u.client_id = c.id
-                WHERE u.username = %s AND u.password_hash = %s
-            """, (username, hashed))
-
-            user = cur.fetchone()
-            cur.close()
-            conn.close()
-
-            if user:
-                session["user_id"]      = user["id"]
-                session["username"]     = user["username"]
-                session["is_admin"]     = user.get("is_admin", False)
-                session["store_prefix"] = user.get("store_prefix") or "default"
-                return redirect(url_for("dashboard"))
-            else:
-                error = "Nieprawidłowy login lub hasło."
-        except Exception as e:
-            print(f"LOGIN ERROR: {e}")
-            error = f"Błąd połączenia z bazą: {e}"
-
-    return render_template("login.html", error=error)
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if "user_id" in session:
-        return redirect(url_for("dashboard"))
-
-    error = None
-    message = None
-
-    if request.method == "POST":
-        username   = request.form.get("username", "").strip()
-        password   = request.form.get("password", "")
-        store_name = request.form.get("store_name", "").strip()
-
-        if not username or not password or not store_name:
-            error = "Wypełnij wszystkie pola!"
-        else:
-            hashed = hash_password(password)
-            slug   = generate_store_prefix(store_name)
-
-            conn = None
-            try:
-                conn = psycopg2.connect(**DB_CONFIG)
-                conn.autocommit = False
-                cur = conn.cursor()
-
-                # 1. Sprawdź czy user już istnieje
-                cur.execute("SELECT id FROM users WHERE username = %s", (username,))
-                if cur.fetchone():
-                    error = "Użytkownik o takim loginie już istnieje!"
-                else:
-                    # 2. Sprawdź czy sklep już istnieje
-                    cur.execute("SELECT id FROM clients WHERE slug = %s", (slug,))
-                    if cur.fetchone():
-                        error = "Sklep o takiej nazwie już istnieje!"
-                    else:
-
-                        cur.execute("""
-                            INSERT INTO clients (name, slug, store_prefix, source_type, field_mapping)
-                            VALUES (%s, %s, %s, %s, %s::jsonb)
-                            RETURNING id
-                        """, (store_name, slug, slug, 'url', '{}'))
-                        client_id = cur.fetchone()[0]
-
-                        # 4. Dodaj użytkownika
-                        cur.execute("""
-                            INSERT INTO users (username, password_hash, is_admin, client_id)
-                            VALUES (%s, %s, %s, %s)
-                        """, (username, hashed, False, client_id))
-
-                        # 5. Tworzenie tabel (pozostaje bez zmian)
-                        table_products = f"{slug}_products"
-                        cur.execute(f"""
-                            CREATE TABLE IF NOT EXISTS {table_products} (
-                                id SERIAL PRIMARY KEY,
-                                sku TEXT NOT NULL,
-                                name TEXT,
-                                size VARCHAR(50),
-                                color VARCHAR(50),
-                                manufacturer VARCHAR(50),
-                                price_normal FLOAT,
-                                price_special FLOAT,
-                                url TEXT,
-                                category VARCHAR(100),
-                                store VARCHAR(50),
-                                availability VARCHAR(50),
-                                image TEXT,
-                                description TEXT,
-                                date_of_download TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                UNIQUE (sku, store)
-                            );
-                        """)
-
-                        # mappings_table = f"{slug}_product_mappings"
-                        # cur.execute(f"""
-                        #     CREATE TABLE IF NOT EXISTS {mappings_table} (
-                        #         id SERIAL PRIMARY KEY,
-                        #         our_product_id INTEGER REFERENCES {table_products}(id) ON DELETE CASCADE,
-                        #         competitor_table TEXT NOT NULL,
-                        #         competitor_id INTEGER NOT NULL
-                        #     );
-                        # """)
-
-                        conn.commit()
-                        message = f"Sklep '{store_name}' zarejestrowany pomyślnie! Możesz się zalogować."
-
-                cur.close()
-            except Exception as e:
-                if conn:
-                    conn.rollback()
-                print(f"REGISTER ERROR: {e}")
-                error = f"Błąd bazy danych: {str(e)}"
-            finally:
-                if conn:
-                    conn.close()
-
-    return render_template("register.html", error=error, message=message)
-
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
 
 
 # -----------------
@@ -697,5 +546,6 @@ def admin_upload_confirm():
     })
 
 app.register_blueprint(products_bp)
+app.register_blueprint(auth_bp)
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=6767, debug=True)
