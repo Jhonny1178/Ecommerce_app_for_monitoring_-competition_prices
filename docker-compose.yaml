@@ -46,11 +46,8 @@
 ---
 x-airflow-common:
   &airflow-common
-  # In order to add custom dependencies or upgrade provider distributions you can use your extended image.
-  # Comment the image line, place your Dockerfile in the directory where you placed the docker-compose.yaml
-  # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
-  build: .
-  # build: .
+  # Używamy oficjalnego obrazu zamiast budować z pustego folderu
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.9.1}
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
@@ -326,9 +323,16 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
-  # You can enable flower by adding "--profile flower" option e.g. docker-compose --profile flower up
-  # or by explicitly targeted on the command line e.g. docker-compose up flower.
-  # See: https://docs.docker.com/compose/profiles/
+  recommendation_service:
+    build: ./price-recomendation
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./price-recomendation:/app
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    restart: always
+
   flower:
     <<: *airflow-common
     command: celery flower
@@ -347,6 +351,48 @@ services:
       <<: *airflow-common-depends-on
       airflow-init:
         condition: service_completed_successfully
+
+  ai_generator:
+    build: ./autonomiczny_scraper
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mapujemy Twój kod, żebyś mógł go edytować na żywo
+      - ./autonomiczny_scraper:/app
+      # TO JEST MAGIA: Łączymy folder AI z folderem Scrapy
+      - ./ecommerce_price_comparer/spiders:/opt/ecommerce_price_comparer/spiders
+    environment:
+      # Podpinamy zmienne z pliku .env (FastAPI z nich skorzysta)
+      - APP_DB_HOST=ecommerce-db
+      - APP_DB_PORT=5432
+      - APP_DB_NAME=${APP_DB_NAME}
+      - APP_DB_USER=${APP_DB_USER}
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      # Wskazujemy wewnątrz kontenera AI, gdzie leży zmapowany folder kolegi
+      - SPIDERS_DIR=/opt/ecommerce_price_comparer/spiders
+    restart: always
+    depends_on:
+      ecommerce-db:
+        condition: service_started
+
+  webapp:
+    build: ./webapp
+    ports:
+      - "6767:6767"
+    volumes:
+      - ./webapp:/app
+    environment:
+      # Te same zmienne co wyżej, dla Flaska
+      - APP_DB_HOST=ecommerce-db
+      - APP_DB_PORT=5432
+      - APP_DB_NAME=${APP_DB_NAME}
+      - APP_DB_USER=${APP_DB_USER}
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD}
+    restart: always
+    depends_on:
+      ecommerce-db:
+        condition: service_started
 
 volumes:
   postgres-db-volume:
