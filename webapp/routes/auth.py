@@ -90,15 +90,16 @@ def register():
                 cur.close()
                 conn.close()
 
-                # 2. OPCJA B - Webhook do drugiego programu (W Dockerze)
+                # 2. OPCJA B - Webhook wysyłający dane do generatora scraperów
                 try:
-                    # TODO: Odkomentujemy to później, gdy postawimy drugi kontener!
-                    # payload = {"request_id": request_id, "urls": competitor_urls}
-                    # requests.post("http://analyzer_container:8000/api/check", json=payload, timeout=3)
-                    pass
+                    payload = {
+                        "request_id": request_id,
+                        "company_name": company_name,
+                        "urls": competitor_urls
+                    }
+                    requests.post("http://ai_generator:8080/api/check", json=payload, timeout=5)
                 except requests.exceptions.RequestException as e:
                     print(f"Nie udało się połączyć z analizatorem (nie krytyczne): {e}")
-
                 message = "Dziękujemy! Twój wniosek został przyjęty. Nasz system właśnie analizuje podane strony. Wyniki otrzymasz na podany adres e-mail."
 
             except psycopg2.errors.UniqueViolation:

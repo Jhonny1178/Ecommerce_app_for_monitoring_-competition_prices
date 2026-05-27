@@ -1,0 +1,3 @@
+API_KEY_1 = "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"
+API_KEY_2 = "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"
+API_KEY_3 = "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" # fabrykasmiechumichalek
