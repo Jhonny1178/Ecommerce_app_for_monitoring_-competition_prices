@@ -1,15 +1,15 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
-import psycopg2
 import psycopg2.extras
-from functools import wraps
 from dotenv import load_dotenv
-import hashlib
 import os
+import hashlib
+import unicodedata
+import re
 import csv
 import io
 import xml.etree.ElementTree as ET
-import re
-import unicodedata
+from utils import get_db, hash_password, generate_store_prefix, login_required, admin_required
+from routes.products import products_bp
 
 load_dotenv()
 
@@ -46,27 +46,6 @@ def generate_store_prefix(name: str) -> str:
     name = re.sub(r'[^a-z0-9]', '_', name)
     name = re.sub(r'_+', '_', name).strip('_')
     return name
-
-
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user_id" not in session:
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-    return decorated
-
-
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user_id" not in session:
-            return redirect(url_for("login"))
-        if not session.get("is_admin"):
-            flash("Brak uprawnień administratora.", "error")
-            return redirect(url_for("dashboard"))
-        return f(*args, **kwargs)
-    return decorated
 
 
 # -----------------
@@ -233,6 +212,12 @@ def dashboard():
                            username=session["username"],
                            is_admin=session.get("is_admin", False))
 
+# Dołącz to do pliku webapp/app.py (tylko na czas testów!)
+@app.route("/test-ai")
+@login_required # Zabezpieczamy, żebyś miał sesję i przedrostek sklepu
+def test_ai():
+    return render_template("product_test.html")
+
 
 @app.route("/admin")
 @admin_required
@@ -249,96 +234,6 @@ ALLOWED_SORTS = {
     "category", "price_normal", "price_special",
     "store", "availability", "date_of_download"
 }
-
-
-@app.route("/api/products")
-@login_required
-def api_products():
-    category     = request.args.get("category", "")
-    store        = request.args.get("store", "")
-    availability = request.args.get("availability", "")
-    manufacturer = request.args.get("manufacturer", "")
-    min_price    = request.args.get("min_price", "")
-    max_price    = request.args.get("max_price", "")
-    sort         = request.args.get("sort", "id")
-    order        = request.args.get("order", "asc")
-    search       = request.args.get("search", "")
-
-    if sort not in ALLOWED_SORTS: sort = "id"
-    if order not in {"asc", "desc"}: order = "asc"
-
-    where, params = [], []
-    if category:     where.append("category = %s");     params.append(category)
-    if store:        where.append("store = %s");        params.append(store)
-    if availability: where.append("availability = %s"); params.append(availability)
-    if manufacturer: where.append("manufacturer = %s"); params.append(manufacturer)
-    if min_price:    where.append("price_normal >= %s"); params.append(float(min_price))
-    if max_price:    where.append("price_normal <= %s"); params.append(float(max_price))
-    if search:
-        where.append("(name ILIKE %s OR sku ILIKE %s OR description ILIKE %s)")
-        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
-
-    table_products = f"{session.get('store_prefix', 'default')}_products"
-    sql = f"SELECT * FROM {table_products}"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += f" ORDER BY {sort} {order}"
-
-    try:
-        conn = get_db()
-        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-        cur.close(); conn.close()
-        return jsonify({"ok": True, "data": [dict(r) for r in rows]})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/api/products/<int:product_id>")
-@login_required
-def api_product_detail(product_id):
-    try:
-        conn = get_db()
-        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        prefix          = session.get('store_prefix', 'default')
-        table_products  = f"{prefix}_products"
-        table_mappings  = f"{prefix}_product_mappings"
-        competitor_table = f"{prefix}_competitors"
-        COMPETITOR_TABLES = {competitor_table: "Rynek (Konkurencja)"}
-
-        cur.execute(f"SELECT * FROM {table_products} WHERE id = %s", (product_id,))
-        product = cur.fetchone()
-        if not product:
-            return jsonify({"ok": False, "error": "Produkt nie istnieje"}), 404
-        product = dict(product)
-
-        competitors = []
-        for table, label in COMPETITOR_TABLES.items():
-            cur.execute(f"""
-                SELECT c.*,
-                    '{label}' AS shop_label,
-                    '{table}' AS shop_table,
-                    COALESCE(p.price_special, p.price_normal) AS our_effective,
-                    COALESCE(c.price_special, c.price_normal) AS comp_effective,
-                    ROUND((COALESCE(c.price_special,c.price_normal)
-                           - COALESCE(p.price_special,p.price_normal))::numeric, 2) AS diff_abs,
-                    ROUND(((COALESCE(c.price_special,c.price_normal)
-                            - COALESCE(p.price_special,p.price_normal))
-                           / NULLIF(COALESCE(c.price_special,c.price_normal),0)*100)::numeric, 1) AS diff_pct
-                FROM {table_mappings} m
-                JOIN {table_products} p ON p.id = m.our_product_id
-                JOIN {table}          c ON c.id = m.competitor_id
-                WHERE m.our_product_id = %s
-                  AND m.competitor_table = %s
-            """, (product_id, table))
-            competitors += [dict(r) for r in cur.fetchall()]
-
-        cur.close(); conn.close()
-        return jsonify({"ok": True, "product": product, "competitors": competitors})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/stats")
@@ -801,6 +696,6 @@ def admin_upload_confirm():
         "errors": errors,
     })
 
-
+app.register_blueprint(products_bp)
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=6767, debug=True)

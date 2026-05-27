@@ -326,9 +326,16 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
-  # You can enable flower by adding "--profile flower" option e.g. docker-compose --profile flower up
-  # or by explicitly targeted on the command line e.g. docker-compose up flower.
-  # See: https://docs.docker.com/compose/profiles/
+  recommendation_service:
+    build: ./price-recomendation
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./price-recomendation:/app
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    restart: always
+
   flower:
     <<: *airflow-common
     command: celery flower

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Podstrony Produktu</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; padding: 40px; display: flex; justify-content: center; }
+        .card { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 500px; text-align: center; }
+        h1 { color: #333; font-size: 24px; margin-bottom: 20px; }
+        .btn { background-color: #4CAF50; color: white; border: none; padding: 12px 24px; text-align: center; font-size: 16px; border-radius: 5px; cursor: pointer; transition: 0.3s; width: 100%; font-weight: bold; }
+        .btn:hover { background-color: #45a049; }
+        .btn:disabled { background-color: #cccccc; cursor: not-allowed; }
+
+        /* Sekcja wyników ukryta domyślnie */
+        #result-box { margin-top: 25px; padding: 20px; background-color: #e8f5e9; border-left: 5px solid #4CAF50; border-radius: 5px; text-align: left; display: none; }
+        .price-tag { font-size: 28px; font-weight: bold; color: #2e7d32; margin: 10px 0; }
+        .reasoning { font-size: 14px; color: #555; font-style: italic; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #4CAF50; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Tester Rekomendacji 🤖</h1>
+        <p>Sprawdzanie połączenia dla produktu <strong>ID: 1</strong></p>
+
+        <button id="ai-btn" class="btn" onclick="generateRecommendation()">
+            Wygeneruj optymalną cenę (AI)
+        </button>
+
+        <div id="result-box">
+            <p>Sugerowana nowa cena:</p>
+            <div class="price-tag" id="new-price">-- PLN</div>
+            <p><strong>Uzasadnienie:</strong></p>
+            <p class="reasoning" id="ai-reasoning">Trwa pobieranie danych...</p>
+        </div>
+    </div>
+
+    <script>
+        async function generateRecommendation() {
+            const btn = document.getElementById('ai-btn');
+            const resultBox = document.getElementById('result-box');
+            const priceEl = document.getElementById('new-price');
+            const reasoningEl = document.getElementById('ai-reasoning');
+
+            // Stan ładowania
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader"></div> Analizuję rynek...';
+            resultBox.style.display = 'none';
+
+            // Zmień "1" na ID produktu, które na pewno istnieje w Twojej bazie DBeaver
+            const PRODUCT_ID = 1;
+
+            try {
+                // Wywołanie Twojego nowego endpointu!
+                const response = await fetch(`/api/products/${PRODUCT_ID}/recommend`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.ok) {
+                    // Wyświetlenie wyników
+                    priceEl.textContent = data.recommended_price + " PLN";
+                    reasoningEl.textContent = data.justification;
+                    resultBox.style.display = 'block';
+                } else {
+                    alert('Błąd serwera: ' + (data.error || 'Nieznany błąd'));
+                }
+            } catch (error) {
+                alert('Błąd połączenia z backendem. Czy jesteś zalogowany?');
+            } finally {
+                // Przywrócenie przycisku
+                btn.disabled = false;
+                btn.innerHTML = 'Wygeneruj optymalną cenę (AI)';
+            }
+        }
+    </script>
+</body>
+</html>

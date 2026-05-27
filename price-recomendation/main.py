@@ -24,7 +24,6 @@ app.add_middleware(
 
 
 # Definicja Kontraktu
-# Stachu dostosuj nazyw zmiennych produktów na stronie pod to lub zmien tutaj
 class DaneZeScrapera(BaseModel):
     nazwa_produktu: str
     lista_rynkowa: list[float]
