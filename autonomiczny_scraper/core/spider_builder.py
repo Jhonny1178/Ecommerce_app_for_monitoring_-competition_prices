@@ -1,6 +1,6 @@
 import json
 
-def wygeneruj_plik_spidera(json_map_path="selectors_map.json", plik_wyjsciowy="autonomiczny_scraper/spiders/gotowy_scraper.py", nazwa_sklepu="sklep"):
+def wygeneruj_plik_spidera(json_map_path="selectors_map.json", plik_wyjsciowy="autonomiczny_scraper/spiders/gotowy_scraper.py", nazwa_sklepu="sklep", linki=None):
     try:
         with open(json_map_path, "r", encoding="utf-8") as f:
             css_map = json.load(f)
@@ -13,6 +13,8 @@ def wygeneruj_plik_spidera(json_map_path="selectors_map.json", plik_wyjsciowy="a
         val = f'"{v}"' if v is not None else 'None'
         formatted_map += f'        "{k}": {val},\n'
     formatted_map += "    }"
+
+    linki_code = f"start_urls = {linki}" if linki else "start_urls = []"
 
     spider_code = f"""import scrapy
 import re
@@ -28,16 +30,21 @@ class GotowyScraperSpider(scrapy.Spider):
     css_map = {formatted_map}
 
     def start_requests(self):
-        sciezka_do_linkow = getattr(self, 'links_file', '{nazwa_sklepu}_linki.txt')
-
-        if os.path.exists(sciezka_do_linkow):
-            with open(sciezka_do_linkow, 'r', encoding='utf-8') as f:
-                dla_kazdego_linku = f.read().splitlines()
-                for url in dla_kazdego_linku:
-                    if url.strip():
-                        yield scrapy.Request(url=url.strip(), callback=self.parse)
+        {linki_code}
+        if start_urls:
+            for url in start_urls:
+                yield scrapy.Request(url=url.strip(), callback=self.parse)
         else:
-            self.logger.error(f"Brak pliku z linkami: {{sciezka_do_linkow}}")
+            sciezka_do_linkow = getattr(self, 'links_file', '{nazwa_sklepu}_linki.txt')
+
+            if os.path.exists(sciezka_do_linkow):
+                with open(sciezka_do_linkow, 'r', encoding='utf-8') as f:
+                    dla_kazdego_linku = f.read().splitlines()
+                    for url in dla_kazdego_linku:
+                        if url.strip():
+                            yield scrapy.Request(url=url.strip(), callback=self.parse)
+            else:
+                self.logger.error(f"Brak pliku z linkami: {{sciezka_do_linkow}}")
 
     def parse(self, response):
         if response.status != 200:

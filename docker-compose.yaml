@@ -46,7 +46,6 @@
 ---
 x-airflow-common:
   &airflow-common
-  # Używamy oficjalnego obrazu zamiast budować z pustego folderu
   image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.9.1}
   env_file:
     - ${ENV_FILE_PATH:-.env}
@@ -357,19 +356,22 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # Mapujemy Twój kod, żebyś mógł go edytować na żywo
-      - ./autonomiczny_scraper:/app
-      # TO JEST MAGIA: Łączymy folder AI z folderem Scrapy
-      - ./ecommerce_price_comparer/spiders:/opt/ecommerce_price_comparer/spiders
+      # Flagi :delegated odciążają synchronizację z macOS
+      - ./autonomiczny_scraper:/app:delegated
+      - ./ecommerce_price_comparer/spiders:/opt/ecommerce_price_comparer/spiders:delegated
+      # Blokujemy synchronizację plików .pyc z hostem
+      - /app/__pycache__
     environment:
-      # Podpinamy zmienne z pliku .env (FastAPI z nich skorzysta)
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # Wymusza na Uvicorn/Watchfiles tryb odpytywania (polling), zamiast nasłuchiwania zdarzeń FSEvents
+      - WATCHFILES_FORCE_POLLING=1
       - APP_DB_HOST=ecommerce-db
       - APP_DB_PORT=5432
       - APP_DB_NAME=${APP_DB_NAME}
       - APP_DB_USER=${APP_DB_USER}
       - APP_DB_PASSWORD=${APP_DB_PASSWORD}
       - GROQ_API_KEY=${GROQ_API_KEY}
-      # Wskazujemy wewnątrz kontenera AI, gdzie leży zmapowany folder kolegi
       - SPIDERS_DIR=/opt/ecommerce_price_comparer/spiders
     restart: always
     depends_on:
@@ -381,9 +383,11 @@ services:
     ports:
       - "6767:6767"
     volumes:
-      - ./webapp:/app
+      - ./webapp:/app:delegated
+      - /app/__pycache__
     environment:
-      # Te same zmienne co wyżej, dla Flaska
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
       - APP_DB_HOST=ecommerce-db
       - APP_DB_PORT=5432
       - APP_DB_NAME=${APP_DB_NAME}
