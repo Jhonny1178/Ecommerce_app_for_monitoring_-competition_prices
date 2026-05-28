@@ -17,38 +17,9 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "super-tajny-klucz")
 
-DB_CONFIG = {
-    "host": "localhost",
-    "port":  5434,
-    "dbname": os.environ.get("APP_DB_NAME", "ecommerce_data"),
-    "user": os.environ.get("APP_DB_USER", "postgres"),
-    "password": os.environ.get("APP_DB_PASSWORD", "***"),
-}
-
-
-def get_db():
-    conn = psycopg2.connect(**DB_CONFIG)
-    conn.autocommit = True
-    return conn
-
-
 # -----------------
 # POMOCNICZE
 # -----------------
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-def generate_store_prefix(name: str) -> str:
-    """Tworzy bezpieczny prefiks dla tabel (np. 'Mój Sklep!' -> 'moj_sklep')"""
-    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('utf-8')
-    name = name.lower()
-    name = re.sub(r'[^a-z0-9]', '_', name)
-    name = re.sub(r'_+', '_', name).strip('_')
-    return name
-
-
 
 # -----------------
 # FRONTEND PAGES
@@ -60,12 +31,6 @@ def dashboard():
     return render_template("dashboard.html",
                            username=session["username"],
                            is_admin=session.get("is_admin", False))
-
-# Dołącz to do pliku webapp/app.py (tylko na czas testów!)
-@app.route("/test-ai")
-@login_required # Zabezpieczamy, żebyś miał sesję i przedrostek sklepu
-def test_ai():
-    return render_template("product_test.html")
 
 
 @app.route("/admin")
@@ -548,4 +513,4 @@ def admin_upload_confirm():
 app.register_blueprint(products_bp)
 app.register_blueprint(auth_bp)
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=6767, debug=True)
+    app.run(host="0.0.0.0", port=6767, debug=False)

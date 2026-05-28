@@ -85,3 +85,13 @@ VALUES (
     (SELECT id FROM clients WHERE slug = 'sklep_testowy')
 )
 ON CONFLICT (username) DO NOTHING;
+
+-- Tabela wniosków rejestracyjnych
+CREATE TABLE IF NOT EXISTS registration_requests (
+    id SERIAL PRIMARY KEY,
+    company_name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    competitor_urls JSONB NOT NULL,
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT NOW()
+);

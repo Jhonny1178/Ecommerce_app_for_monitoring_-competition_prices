@@ -3,6 +3,9 @@ import psycopg2.extras
 import requests
 import json
 from utils import get_db, hash_password
+import psycopg2
+import psycopg2.extras
+from psycopg2 import errors
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -102,7 +105,7 @@ def register():
                     print(f"Nie udało się połączyć z analizatorem (nie krytyczne): {e}")
                 message = "Dziękujemy! Twój wniosek został przyjęty. Nasz system właśnie analizuje podane strony. Wyniki otrzymasz na podany adres e-mail."
 
-            except psycopg2.errors.UniqueViolation:
+            except errors.UniqueViolation:
                 error = "Wniosek z tym adresem e-mail już istnieje w systemie."
             except Exception as e:
                 print(f"REGISTER ERROR: {e}")
