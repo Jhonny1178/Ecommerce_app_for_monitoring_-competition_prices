@@ -24,13 +24,17 @@ default_args = {
     'retry_delay': timedelta(minutes=5),
 }
 def get_active_clients():
-    conn = psycopg2.connect(**DB_CONFIG)
-    cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM clients WHERE is_active = TRUE")
-    clients = [dict(r) for r in cur.fetchall()]
-    cur.close()
-    conn.close()
-    return clients
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM clients WHERE is_active = TRUE")
+        clients = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return clients
+    except Exception as e:
+        print(f"Błąd łączenia z bazą podczas budowania DAGa: {e}")
+        return []
 
 def ingest_client_data(client: dict):
     """Uruchamia DataIngestor dla jednego klienta."""
