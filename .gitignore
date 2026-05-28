@@ -11,3 +11,5 @@ data/
 models/
 airflow/logs/
 airflow/config/airflow.cfg
+frontend/.dart_tool/
+frontend/build/

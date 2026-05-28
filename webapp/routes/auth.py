@@ -118,3 +118,83 @@ def register():
 def logout():
     session.clear()
     return redirect(url_for("auth.login"))
+
+@auth_bp.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    hashed = hash_password(password)
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT u.*, 
+                   COALESCE(c.store_prefix, c.slug, 'default') AS store_prefix
+            FROM users u
+            LEFT JOIN clients c ON u.client_id = c.id
+            WHERE u.username = %s AND u.password_hash = %s
+        """, (username, hashed))
+
+        user = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if user:
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            session["is_admin"] = user.get("is_admin", False)
+            session["store_prefix"] = user.get("store_prefix") or "default"
+            return jsonify({"ok": True, "message": "Zalogowano pomyślnie"})
+        else:
+            return jsonify({"ok": False, "error": "Nieprawidłowy login lub hasło."}), 401
+            
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Błąd połączenia z bazą: {e}"}), 500
+    
+@auth_bp.route("/api/register", methods=["POST"])
+def api_register():
+    data = request.get_json() or {}
+    company_name = data.get("company_name", "").strip()
+    email = data.get("email", "").strip()
+    competitor_urls = data.get("urls", [])
+
+    if not company_name or not email:
+        return jsonify({"ok": False, "error": "Wypełnij nazwę firmy i adres e-mail!"}), 400
+    if not competitor_urls:
+        return jsonify({"ok": False, "error": "Podaj przynajmniej jedną stronę konkurencji!"}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        urls_json = json.dumps(competitor_urls)
+        cur.execute("""
+            INSERT INTO registration_requests (company_name, email, competitor_urls, status)
+            VALUES (%s, %s, %s::jsonb, 'pending')
+            RETURNING id
+        """, (company_name, email, urls_json))
+
+        request_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        try:
+            payload = {
+                "request_id": request_id,
+                "company_name": company_name,
+                "urls": competitor_urls
+            }
+            requests.post("http://ai_generator:8080/api/check", json=payload, timeout=5)
+        except requests.exceptions.RequestException as e:
+            print(f"Błąd komunikacji z AI: {e}")
+
+        return jsonify({"ok": True, "message": "Dziękujemy! Twój wniosek został przyjęty i jest analizowany."})
+
+    except errors.UniqueViolation:
+        return jsonify({"ok": False, "error": "Wniosek z tym adresem e-mail już istnieje w systemie."}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Błąd zapisu w bazie: {e}"}), 500
