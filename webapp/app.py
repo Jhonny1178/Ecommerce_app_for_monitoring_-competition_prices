@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+from flask_cors import CORS
 import psycopg2.extras
 from dotenv import load_dotenv
 import os
@@ -16,6 +17,8 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "super-tajny-klucz")
+
+CORS(app, supports_credentials=True)
 
 DB_CONFIG = {
     "host": "localhost",

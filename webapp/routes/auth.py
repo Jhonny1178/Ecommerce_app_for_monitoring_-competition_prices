@@ -115,3 +115,36 @@ def register():
 def logout():
     session.clear()
     return redirect(url_for("auth.login"))
+
+@auth_bp.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    hashed = hash_password(password)
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT u.*,
+                COALESCE(c.store_prefix, c.slug, 'default') AS store_prefix
+            FROM users u
+            LEFT JOIN clients c ON u.client_id = c.id
+            WHERE u.username = %s AND u.password_hash = %s
+        """, (username, hashed))
+
+        user = cur.fetchcone()
+        cur.close()
+        conn.close()
+        if user:
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            session["is_admin"] = user.get("is_admin", False)
+            session["store_prefix"] = user.get("store_prefix") or "default"
+
+            return jsonify({"ok": True, "message": "Zalogowano pomyślnie"})
+        else:
+            return jsonify({"ok": False, "error": "Nieprawidłowy login lub hasło."}), 401
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Błąd połączenia z bazą: {e}"}), 500

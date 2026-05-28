@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'register_screen_one.dart';
@@ -20,6 +22,53 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  bool _isLoading = false;
+  Future<void> _login() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final url = Uri.parse("http://127.0.0.1:6767/api/login");
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({
+          'username':_emailController.text,
+          'password': _passwordController.text,
+        }),
+      );
+
+      final responseData = jsonDecode(response.body);
+      if (response.statusCode == 200 && responseData['ok'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Zalogowano pomyślnie!'), backgroundColor: Colors.green),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(responseData['error'] ?? 'Nieznany błąd logowania'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Błąd komunikacji z serwerem: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -38,7 +87,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   void _prevStep() => setState(() => _registerStep = 1);
 
   bool get _isLoginValid {
-    return _emailController.text.contains('@') && _passwordController.text.isNotEmpty;
+    //return _emailController.text.contains('@') && _passwordController.text.isNotEmpty;
+    return _emailController.text.isNotEmpty && _passwordController.text.isNotEmpty;
   }
 
   @override
@@ -220,7 +270,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               fillColor: colorScheme.surfaceContainerHigh,
               labelText: 'Hasło',
               hintText: 'Wpisz swoje hasło...',
-              helperText: 'Min. 6, max. 70 znaków',
               border: const UnderlineInputBorder(),
               suffixIcon: IconButton(
                 icon: Icon(
@@ -240,7 +289,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
           Center(
             child: FilledButton(
-              onPressed: _isLoginValid ? () {} : null,
+              onPressed: (_isLoginValid && !_isLoading) ?  _login : null,
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 40, vertical: 20
@@ -249,10 +298,16 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   borderRadius: BorderRadius.circular(30),
                 ),
               ),
-              child: const Text(
-                'Zaloguj się',
-                style: TextStyle(fontSize: 16),
-              ),
+              child: _isLoading
+                ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                )
+                : const Text(
+                  'Zaloguj się',
+                  style: TextStyle(fontSize: 16),
+                ),
             ),
           ),
         ],
