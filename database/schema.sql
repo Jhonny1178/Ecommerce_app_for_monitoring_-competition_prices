@@ -59,20 +59,11 @@ INSERT INTO clients (
     'sklep_testowy',
     'sklep_testowy',
     TRUE,
-    'url',
-    'https://example.com/produkty.xlsx',
-    'xlsx',
-    '{
-        "SKU":        "sku",
-        "NAZWA":      "name",
-        "ROZMIAR":    "size",
-        "KOLOR":      "color",
-        "MARKA":      "manufacturer",
-        "CENA":       "price_normal",
-        "CENA_PROMO": "price_special",
-        "OPIS":       "description"
-    }'::jsonb,
-    ARRAY['Calavado', 'jmbdesing', 'pod_pierzyna']
+    'local',
+    '/opt/airflow/dags/data/moje_produkty.csv',
+    'csv',
+    '{"SKU": "sku", "URL": "url", "CENA": "price_normal", "OPIS": "description", "KOLOR": "color", "MARKA": "manufacturer", "NAZWA": "name", "SKLEP": "store", "ROZMIAR": "size", "ZDJECIE": "image", "KATEGORIA": "category", "CENA_PROMO": "price_special", "DOSTEPNOSC": "availability", "DATA_POBRANIA": "date_of_download"}'::jsonb,
+    ARRAY['spider_dummy']
 )
 ON CONFLICT (slug) DO NOTHING;
 

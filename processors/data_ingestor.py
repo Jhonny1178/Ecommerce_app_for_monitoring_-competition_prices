@@ -33,7 +33,7 @@ class DataExtractor:
                     file_object = io.BytesIO(response.content)
                 else:
                     # XML i CSV szybszym strumieniem z mniejszym ramem excel potrzbuej calego pliku
-                    response = requests.get(self.source_path, headers=headers, stream=True)
+                    response = requests.get(self.source_path, headers=headers, stream=True,timeout=60)
                     response.raise_for_status()
                     response.raw.decode_content = True
                     file_object = response.raw
