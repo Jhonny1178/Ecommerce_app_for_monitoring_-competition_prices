@@ -2,6 +2,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:tonten/features/dashboard/screens/dashboard_screen.dart';
 import 'register_screen_one.dart';
 import 'register_screen_two.dart';
 
@@ -16,6 +17,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   late TabController _tabController;
   bool _isPasswordObscured = true;
   bool _isFabExpanded = false;
+
+  String _regName = '';
+  String _regSurname = '';
+  String _regEmail = '';
 
   int _registerStep = 1;
 
@@ -44,6 +49,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
       final responseData = jsonDecode(response.body);
       if (response.statusCode == 200 && responseData['ok'] == true) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const DashboardScreen()),
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Zalogowano pomyślnie!'), backgroundColor: Colors.green),
         );
@@ -83,7 +91,14 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     super.dispose();
   }
 
-  void _nextStep() => setState(() => _registerStep = 2);
+  void _nextStep(String name, String surname, String email) {
+     setState(() {
+      _regName = name;
+      _regSurname = surname;
+      _regEmail = email;
+      _registerStep = 2;
+    });
+  }
   void _prevStep() => setState(() => _registerStep = 1);
 
   bool get _isLoginValid {
@@ -225,7 +240,16 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                             else {
                               return _registerStep == 1
                                 ? RegisterScreenOne(onNext: _nextStep)
-                                : RegisterScreenTwo(onBack: _prevStep);
+                                : RegisterScreenTwo(
+                                  onBack: _prevStep,
+                                  email: _regEmail,
+                                  name: _regName,
+                                  surname: _regSurname,
+                                  onSuccess: () {
+                                    _tabController.animateTo(0);
+                                    _prevStep();
+                                  }
+                                );
                             }
                           },
                         )

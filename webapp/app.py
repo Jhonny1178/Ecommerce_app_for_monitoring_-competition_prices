@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 import psycopg2.extras
 from dotenv import load_dotenv
+from flask_cors import CORS
 import os
 import hashlib
 import unicodedata
@@ -17,13 +18,7 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "super-tajny-klucz")
 
-# -----------------
-# POMOCNICZE
-# -----------------
-
-# -----------------
-# FRONTEND PAGES
-# -----------------
+CORS(app, supports_credentials=True)
 
 @app.route("/dashboard")
 @login_required
@@ -32,9 +27,8 @@ def dashboard():
                            username=session["username"],
                            is_admin=session.get("is_admin", False))
 
-# Dołącz to do pliku webapp/app.py (tylko na czas testów!)
 @app.route("/test-ai")
-@login_required # Zabezpieczamy, żebyś miał sesję i przedrostek sklepu
+@login_required
 def test_ai():
     return render_template("product_test.html")
 
@@ -43,11 +37,6 @@ def test_ai():
 @admin_required
 def admin():
     return render_template("admin.html", username=session["username"])
-
-
-# ==========================================
-# API — PRODUKTY, STATYSTYKI, PORÓWNANIA
-# ==========================================
 
 ALLOWED_SORTS = {
     "id", "sku", "name", "size", "color", "manufacturer",
@@ -67,7 +56,6 @@ def api_stats():
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # Podstawowe statystyki z tabeli produktów
         cur.execute(f"""
             SELECT 
                 COUNT(*) AS total,
@@ -81,7 +69,6 @@ def api_stats():
         """)
         summary = cur.fetchone() or {}
 
-        # Grupowanie po kategorii
         cur.execute(f"""
             SELECT category, COUNT(*) as count, 
                    ROUND(AVG(price_normal)::numeric, 2) as avg_price
@@ -90,7 +77,6 @@ def api_stats():
         """)
         by_category = cur.fetchall()
 
-        # Grupowanie po sklepie
         cur.execute(f"""
             SELECT store, COUNT(*) as count 
             FROM {products_table} 
@@ -98,7 +84,6 @@ def api_stats():
         """)
         by_store = cur.fetchall()
 
-        # Dostępność
         cur.execute(f"""
             SELECT availability, COUNT(*) as count 
             FROM {products_table} 
@@ -106,7 +91,6 @@ def api_stats():
         """)
         by_availability = cur.fetchall()
 
-        # Sprawdź czy raport istnieje i ile ma wierszy
         report_count = 0
         cur.execute("""
             SELECT EXISTS(SELECT FROM information_schema.tables 
@@ -252,7 +236,6 @@ def api_report():
         conn = get_db()
         cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # Sprawdź czy tabela raportu już istnieje (pipeline mógł jeszcze nie skończyć)
         cur.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables

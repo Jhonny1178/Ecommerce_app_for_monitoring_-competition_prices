@@ -9,11 +9,11 @@ from functools import wraps
 from flask import session, redirect, url_for, flash
 
 DB_CONFIG = {
-    "host": os.environ.get("APP_DB_HOST", "ecommerce-db"),
-    "port": int(os.environ.get("APP_DB_PORT", 5432)),
-    "dbname": os.environ.get("APP_DB_NAME", "ecommerce_data"),
-    "user": os.environ.get("APP_DB_USER", "postgres"),
-    "password": os.environ.get("APP_DB_PASSWORD", "eroch"),
+    "host": "127.0.0.1",
+    "port": 5434,
+    "dbname": "ecommerce_data",
+    "user": "postgres",
+    "password": "password",
 }
 
 def get_db():

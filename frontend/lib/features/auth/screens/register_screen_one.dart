@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class RegisterScreenOne extends StatefulWidget {
-  final VoidCallback onNext;
+  final Function(String name, String surname, String email) onNext;
 
   const RegisterScreenOne({super.key, required this.onNext});
 
@@ -25,7 +25,7 @@ class _RegisterScreenOneState extends State<RegisterScreenOne> {
   bool get _isValid {
     return _nameController.text.isNotEmpty &&
           _surnameController.text.isNotEmpty &&
-          _emailController.text.contains('@');
+          _emailController.text.isNotEmpty;
   }
 
   @override
@@ -43,7 +43,13 @@ class _RegisterScreenOneState extends State<RegisterScreenOne> {
           const SizedBox(height: 32),
           Center(
             child: FilledButton(
-              onPressed: _isValid ? widget.onNext : null,
+              onPressed: _isValid ? () {
+                widget.onNext(
+                  _nameController.text,
+                  _surnameController.text,
+                  _emailController.text
+                );
+              } : null,
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
               ),

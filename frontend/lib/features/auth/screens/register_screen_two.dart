@@ -1,9 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class RegisterScreenTwo extends StatefulWidget {
   final VoidCallback onBack;
+  final VoidCallback onSuccess;
+  final String name;
+  final String surname;
+  final String email;
 
-  const RegisterScreenTwo({super.key, required this.onBack});
+  const RegisterScreenTwo({
+    super.key, 
+    required this.onBack,
+    required this.onSuccess,
+    required this.name,
+    required this.surname,
+    required this.email,
+    });
 
   @override
   State<RegisterScreenTwo> createState() => _RegisterScreenTwoState();
@@ -13,6 +26,44 @@ class _RegisterScreenTwoState extends State<RegisterScreenTwo> {
   final _mainDomainController = TextEditingController();
 
   final List<TextEditingController> _competitors = [TextEditingController()];
+
+  bool _isLoading = false;
+
+  Future<void> _submitRegistration() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final url = Uri.parse("http://127.0.0.1:6767/api/register");
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'company_name': _mainDomainController.text, 
+          'email': widget.email,
+          'urls': _competitors.map((c) => c.text).where((text) => text.isNotEmpty).toList(),
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['ok'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['message'] ?? 'Sukces!'), backgroundColor: Colors.green),
+        );
+        widget.onSuccess();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data['error'] ?? 'Błąd rejestracji'), backgroundColor: Theme.of(context).colorScheme.error),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Błąd połączenia: $e'), backgroundColor: Theme.of(context).colorScheme.error),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -40,7 +91,6 @@ class _RegisterScreenTwoState extends State<RegisterScreenTwo> {
 
   bool get _isValid {
     if (_mainDomainController.text.isEmpty) return false;
-    if (_competitors.length < 2) return false;
     for (var controller in _competitors) {
       if (controller.text.isEmpty) return false;
     }
@@ -93,7 +143,7 @@ class _RegisterScreenTwoState extends State<RegisterScreenTwo> {
                         border: Border.all(color: colorScheme.outlineVariant),
                       ),
                       child: Text(
-                        'Dodaj 2-5 domen sklepów konkurencji',
+                        'Dodaj 1-5 domen sklepów konkurencji',
                         style: TextStyle(color: colorScheme.onSurfaceVariant),
                       ),
                     ),
@@ -153,7 +203,7 @@ class _RegisterScreenTwoState extends State<RegisterScreenTwo> {
 
               Expanded(
                 child: FilledButton(
-                  onPressed: _isValid ? () {} : null,
+                  onPressed: _isValid && !_isLoading ? _submitRegistration : null,
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
                   ),
