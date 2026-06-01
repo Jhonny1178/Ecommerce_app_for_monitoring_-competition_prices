@@ -14,3 +14,10 @@ airflow/config/airflow.cfg
 frontend/.dart_tool/
 frontend/build/
 .idea/
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins*
+frontend/**/*.dill
+frontend/**/*.cache.dill
+**/*.dill
+**/*.track.dill
