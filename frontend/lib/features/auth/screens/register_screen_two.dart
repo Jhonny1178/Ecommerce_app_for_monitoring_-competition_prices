@@ -33,7 +33,7 @@ class _RegisterScreenTwoState extends State<RegisterScreenTwo> {
     setState(() => _isLoading = true);
 
     try {
-      final url = Uri.parse("http://127.0.0.1:6767/api/register");
+      final url = Uri.parse("/api/register");
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},

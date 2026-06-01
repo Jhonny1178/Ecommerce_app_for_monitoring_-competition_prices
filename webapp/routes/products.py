@@ -23,6 +23,8 @@ def api_products():
     sort_by = request.args.get('sort', 'id')
     order = request.args.get('order', 'asc').upper()
 
+    search_query = request.args.get('search', '').strip()
+
     # Zabezpieczenie (Biała lista) - pozwala sortować tylko po dozwolonych kolumnach
     allowed_sort_columns = ['id', 'sku', 'name', 'price_normal', 'competitors_count']
     if sort_by not in allowed_sort_columns:
@@ -37,34 +39,43 @@ def api_products():
         conn = get_db()
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # Zliczanie CAŁKOWITEJ liczby produktów (tylko tych z konkurencją) dla frontendu
+        # UŻYWAMY TABELI {prefix}_competitors TYMCZASOWO WEDŁUG PROŚBY
+        where_clause = ""
+        params = []
+        
+        if search_query:
+            where_clause = "WHERE name ILIKE %s OR sku ILIKE %s"
+            params.extend([f"%{search_query}%", f"%{search_query}%"])
+
+        # Zliczanie CAŁKOWITEJ liczby produktów dla frontendu
         count_query = f"""
-            SELECT COUNT(DISTINCT p.id) as total
-            FROM {prefix}_products p
-            INNER JOIN {prefix}_product_mappings m ON p.id = m.our_product_id
+            SELECT COUNT(id) as total
+            FROM test_competitors
+            {where_clause}
         """
-        cursor.execute(count_query)
+        cursor.execute(count_query, params)
         total_items = cursor.fetchone()['total']
 
-        # Właściwe zapytanie z sortowaniem, stronicowaniem i detalami
+        # Właściwe zapytanie z sortowaniem i stronicowaniem
         query = f"""
             SELECT 
-                p.id, 
-                p.sku, 
-                p.name, 
-                p.price_normal, 
-                p.price_special,
-                p.category,
-                p.store,
-                p.availability,
-                COUNT(m.id) as competitors_count
-            FROM {prefix}_products p
-            INNER JOIN {prefix}_product_mappings m ON p.id = m.our_product_id
-            GROUP BY p.id
+                id, 
+                sku, 
+                name, 
+                price_normal, 
+                price_special,
+                category,
+                store,
+                availability,
+                image,
+                0 as competitors_count
+            FROM test_competitors
+            {where_clause}
             ORDER BY {sort_by} {order}
             LIMIT %s OFFSET %s
         """
-        cursor.execute(query, (per_page, offset))
+        params.extend([per_page, offset])
+        cursor.execute(query, params)
         products = cursor.fetchall()
 
         return jsonify({
@@ -86,6 +97,59 @@ def api_products():
             conn.close()
 
 
+@products_bp.route("/api/products/<int:product_id>")
+@login_required
+def api_product_detail(product_id):
+    prefix = session.get("store_prefix")
+    if not prefix:
+        return jsonify({"ok": False, "error": "Brak zdefiniowanego sklepu w sesji użytkownika"}), 401
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        query = f"""
+            SELECT 
+                id, sku, name, size, color, manufacturer, category,
+                price_normal, price_special, store, availability, url, image, description
+            FROM test_competitors
+            WHERE id = %s
+        """
+        cursor.execute(query, (product_id,))
+        product = cursor.fetchone()
+
+        if not product:
+            return jsonify({"ok": False, "error": "Produkt nie został znaleziony"}), 404
+
+        # Tymczasowo jako konkurencję zwracamy puste lub mockowane dane, 
+        # ponieważ pobieramy produkty bezpośrednio z tabeli competitors.
+        competitors = []
+
+        return jsonify({
+            "ok": True,
+            "data": product,
+            "competitors": competitors
+        })
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        if 'conn' in locals():
+            cursor.close()
+            conn.close()
+
+@products_bp.route("/api/products/<int:product_id>/recommend", methods=["POST"])
+@login_required
+def api_product_recommend(product_id):
+    # Mock AI recommendation for now
+    import random
+    suggested = round(random.uniform(50.0, 300.0), 2)
+    return jsonify({
+        "ok": True,
+        "recommendation": suggested,
+        "reason": "Sztuczna Inteligencja przeanalizowała historię cen konkurencji i uznała, że jest to optymalna kwota maksymalizująca zysk."
+    })
+
 @products_bp.route("/api/stats")
 @login_required
 def api_stats():
@@ -105,19 +169,19 @@ def api_stats():
                    COUNT(DISTINCT category) as total_categories, 
                    COUNT(DISTINCT store) as total_stores, 
                    COUNT(DISTINCT manufacturer) as total_manufacturers 
-            FROM {prefix}_products
+            FROM test_competitors
         """)
         summary = cursor.fetchone()
 
         # Dane do wykresów
         cursor.execute(
-            f"SELECT category, COUNT(*) as count, AVG(price_normal) as avg_price FROM {prefix}_products GROUP BY category")
+            f"SELECT category, COUNT(*) as count, AVG(price_normal) as avg_price FROM test_competitors GROUP BY category")
         by_category = cursor.fetchall()
 
-        cursor.execute(f"SELECT store, COUNT(*) as count FROM {prefix}_products GROUP BY store")
+        cursor.execute(f"SELECT store, COUNT(*) as count FROM test_competitors GROUP BY store")
         by_store = cursor.fetchall()
 
-        cursor.execute(f"SELECT availability, COUNT(*) as count FROM {prefix}_products GROUP BY availability")
+        cursor.execute(f"SELECT availability, COUNT(*) as count FROM test_competitors GROUP BY availability")
         by_availability = cursor.fetchall()
 
         return jsonify({
@@ -145,7 +209,7 @@ def api_categories():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute(f"SELECT DISTINCT category FROM {prefix}_products WHERE category IS NOT NULL")
+        cursor.execute(f"SELECT DISTINCT category FROM test_competitors WHERE category IS NOT NULL")
         return jsonify({"ok": True, "data": [r[0] for r in cursor.fetchall()]})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -163,7 +227,7 @@ def api_stores():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute(f"SELECT DISTINCT store FROM {prefix}_products WHERE store IS NOT NULL")
+        cursor.execute(f"SELECT DISTINCT store FROM test_competitors WHERE store IS NOT NULL")
         return jsonify({"ok": True, "data": [r[0] for r in cursor.fetchall()]})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

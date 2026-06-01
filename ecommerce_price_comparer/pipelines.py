@@ -37,6 +37,7 @@ class SaveToPostgresSQLPipeline:
     def __init__(self):
         self.conn = psycopg2.connect(
             host=os.getenv("APP_DB_HOST"),
+            port=os.getenv("APP_DB_PORT", "5432"),
             user=os.getenv("APP_DB_USER"),
             password=os.getenv("APP_DB_PASSWORD"),
             database=os.getenv("APP_DB_NAME"),

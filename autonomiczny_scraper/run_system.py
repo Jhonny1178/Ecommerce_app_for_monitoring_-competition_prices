@@ -14,7 +14,7 @@ from core.sitemap_finder import find_sitemap
 from core.sitemap_processor import get_product_links
 from core.odchudzacz import build_llm_dataset, wybierz_pewne_probki
 from core.prompt import generate_scraper_from_html
-from core.spider_builder import wygeneruj_plik_spidera
+from core.spider_builder import generate_spider_file
 
 app = FastAPI(title="Scraper Generator API")
 
@@ -94,7 +94,7 @@ def uruchom_autonomiczny_potok(url_sklepu, nazwa_firmy, docelowy_limit_scrapowan
     plik_spidera = os.path.join(katalog_klienta, f"{nazwa_sklepu}_spider.py")
 
     # Przekazujemy czyste_linki, aby Twój generator wpisał je jako string w pliku .py
-    wygeneruj_plik_spidera("data_output/selectors_map.json", plik_spidera, nazwa_sklepu, linki=czyste_linki)
+    generate_spider_file("data_output/selectors_map.json", plik_spidera, nazwa_sklepu, links=czyste_linki)
     print(f"-> Sukces! Pająk zapisany bezpośrednio na produkcję: {plik_spidera}")
 
     return True

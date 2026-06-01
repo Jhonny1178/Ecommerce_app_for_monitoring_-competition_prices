@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../../products/screens/products_list_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -23,7 +24,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _fetchStats() async {
     try {
-      final url = Uri.parse("http://127.0.0.1:6767/api/stats");
+      final url = Uri.parse("/api/stats");
       final response = await http.get(url, headers: {'Accept': 'application/json'});
 
       if (response.statusCode == 200) {
@@ -31,10 +32,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (data['ok'] == true) {
           setState(() {
             _stats = data['summary'] ?? {};
-            _isLoadingStats = false;
           });
         }
       }
+      setState(() => _isLoadingStats = false);
     } catch (e) {
       debugPrint("Błąd pobierania statystyk: $e");
       setState(() => _isLoadingStats = false);
@@ -55,11 +56,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             _buildCustomTabBar(colorScheme),
             const SizedBox(height: 32),
-            _buildNotificationSection(colorScheme),
-            const SizedBox(height: 24),
-            _isLoadingStats
-              ? const Center(child: CircularProgressIndicator())
-              : _buildKpiSection(colorScheme),
+            if (_selectedTabIndex == 0) ...[
+              _buildNotificationSection(colorScheme),
+              const SizedBox(height: 24),
+              _isLoadingStats
+                ? const Center(child: CircularProgressIndicator())
+                : _buildKpiSection(colorScheme),
+            ] else if (_selectedTabIndex == 1) ...[
+              const SizedBox(
+                height: 800, // Minimalna wysokość na listę, można zmienić na Expanded w przyszłości
+                child: ProductsListScreen(),
+              ),
+            ] else ...[
+              const Center(child: Text("Analiza wyników sprzedaży - w budowie")),
+            ]
           ],
         ),
       ),
