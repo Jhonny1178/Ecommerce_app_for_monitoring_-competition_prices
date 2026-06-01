@@ -398,6 +398,15 @@ services:
       ecommerce-db:
         condition: service_started
 
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    restart: always
+    depends_on:
+      webapp:
+        condition: service_started
+
 volumes:
   postgres-db-volume:
   ecommerce-data-volume:

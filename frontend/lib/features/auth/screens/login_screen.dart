@@ -34,7 +34,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     });
 
     try {
-      final url = Uri.parse("http://127.0.0.1:6767/api/login");
+      final url = Uri.parse("/api/login");
       final response = await http.post(
         url,
         headers: {
