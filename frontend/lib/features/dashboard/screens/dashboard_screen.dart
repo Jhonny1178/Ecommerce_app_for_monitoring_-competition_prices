@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:http/http.dart' as http;
+import 'package:tonten/core/api/api_client.dart';
 import 'dart:convert';
 import '../../products/screens/products_list_screen.dart';
 
@@ -25,7 +25,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _fetchStats() async {
     try {
       final url = Uri.parse("/api/stats");
-      final response = await http.get(url, headers: {'Accept': 'application/json'});
+      final response = await ApiClient.get(url, headers: {'Accept': 'application/json'});
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -57,8 +57,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _buildCustomTabBar(colorScheme),
             const SizedBox(height: 32),
             if (_selectedTabIndex == 0) ...[
-              _buildNotificationSection(colorScheme),
-              const SizedBox(height: 24),
               _isLoadingStats
                 ? const Center(child: CircularProgressIndicator())
                 : _buildKpiSection(colorScheme),
@@ -67,8 +65,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 height: 800, // Minimalna wysokość na listę, można zmienić na Expanded w przyszłości
                 child: ProductsListScreen(),
               ),
-            ] else ...[
-              const Center(child: Text("Analiza wyników sprzedaży - w budowie")),
             ]
           ],
         ),
@@ -86,14 +82,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         style: GoogleFonts.overpass(fontSize: 64),
       ),
       actions: [
-        Badge(
-          label: const Text('3'),
-          offset: const Offset(-4, 4),
-          child: IconButton(
-            icon: const Icon(Icons.notifications_none),
-            onPressed: () {},
-          ),
-        ),
+
         IconButton(
           icon: const Icon(Icons.account_circle_outlined, size: 28),
           onPressed: () {},
@@ -114,7 +103,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         children: [
           _buildTabButton('Dashboard', 0, colorScheme),
           _buildTabButton('Produkty', 1, colorScheme),
-          _buildTabButton('Analiza wyników sprzedaży', 2, colorScheme),
         ],
       ),
     );
@@ -141,72 +129,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
-  Widget _buildNotificationSection(ColorScheme colorScheme) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: colorScheme.primaryContainer, // Jasnoniebieskie tło z Twojego motywu
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Powiadomienia',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onPrimaryContainer),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(color: colorScheme.error, borderRadius: BorderRadius.circular(12)),
-                child: Text('3 nowe', style: TextStyle(color: colorScheme.onError, fontSize: 12, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _buildNotificationItem('Sklep Calvado obniżył cenę', 'Prześcieradło Fleuresse Fitted Blue - spadek ceny o 15% (185,90zł do 159,87zł)', '6 minut temu', true, colorScheme),
-          const SizedBox(height: 8),
-          _buildNotificationItem('Sklep Joop podniósł cenę', 'Waza Apollo - wzrost ceny o 5% (100,00zł do 105,00zł)', '7 minut temu', true, colorScheme),
-          const SizedBox(height: 8),
-          _buildNotificationItem('Sklep Zara Home zmienił dostępność produktu', 'Lampka Bulb - brak w magazynie - można podnieść cenę', '2 dni temu', true, colorScheme),
-        ],
-      ),
-    );
-  }
-  Widget _buildNotificationItem(String title, String subtitle, String time, bool isNew, ColorScheme colorScheme) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 4),
-                Text(subtitle, style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 13)),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (isNew) Icon(Icons.circle, size: 8, color: colorScheme.error),
-              const SizedBox(height: 16),
-              Text(time, style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+
   Widget _buildKpiSection(ColorScheme colorScheme) {
     final totalProducts = _stats['total']?.toString() ?? '0';
     final avgPrice = _stats['avg_price_normal'] != null

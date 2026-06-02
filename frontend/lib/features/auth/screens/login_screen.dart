@@ -2,7 +2,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:tonten/features/dashboard/screens/dashboard_screen.dart';
+import 'auth_router.dart';
 import 'register_screen_one.dart';
 import 'register_screen_two.dart';
 
@@ -21,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   String _regName = '';
   String _regSurname = '';
   String _regEmail = '';
+  String _regPassword = '';
 
   int _registerStep = 1;
 
@@ -49,8 +50,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
       final responseData = jsonDecode(response.body);
       if (response.statusCode == 200 && responseData['ok'] == true) {
+        final status = responseData['status'] ?? 'active';
+        final isAdmin = responseData['is_admin'] == true;
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const DashboardScreen()),
+          MaterialPageRoute(builder: (_) => AuthRouter(status: status, isAdmin: isAdmin)),
         );
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Zalogowano pomyślnie!'), backgroundColor: Colors.green),
@@ -91,11 +94,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     super.dispose();
   }
 
-  void _nextStep(String name, String surname, String email) {
+  void _nextStep(String name, String surname, String email, String password) {
      setState(() {
       _regName = name;
       _regSurname = surname;
       _regEmail = email;
+      _regPassword = password;
       _registerStep = 2;
     });
   }
@@ -245,6 +249,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                   email: _regEmail,
                                   name: _regName,
                                   surname: _regSurname,
+                                  password: _regPassword,
                                   onSuccess: () {
                                     _tabController.animateTo(0);
                                     _prevStep();

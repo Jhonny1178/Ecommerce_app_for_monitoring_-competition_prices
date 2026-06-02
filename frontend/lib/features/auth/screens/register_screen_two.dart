@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:tonten/core/api/api_client.dart';
 import 'dart:convert';
 
 class RegisterScreenTwo extends StatefulWidget {
@@ -8,6 +8,7 @@ class RegisterScreenTwo extends StatefulWidget {
   final String name;
   final String surname;
   final String email;
+  final String password;
 
   const RegisterScreenTwo({
     super.key, 
@@ -16,6 +17,7 @@ class RegisterScreenTwo extends StatefulWidget {
     required this.name,
     required this.surname,
     required this.email,
+    required this.password,
     });
 
   @override
@@ -34,12 +36,15 @@ class _RegisterScreenTwoState extends State<RegisterScreenTwo> {
 
     try {
       final url = Uri.parse("/api/register");
-      final response = await http.post(
+      final response = await ApiClient.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'company_name': _mainDomainController.text, 
+          'first_name': widget.name,
+          'last_name': widget.surname,
+          'company_domain': _mainDomainController.text, 
           'email': widget.email,
+          'password': widget.password,
           'urls': _competitors.map((c) => c.text).where((text) => text.isNotEmpty).toList(),
         }),
       );
