@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:tonten/core/api/api_client.dart';
 import 'dart:convert';
 import '../../products/screens/products_list_screen.dart';
+import '../../../core/utils/dialog_utils.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -62,7 +63,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 : _buildKpiSection(colorScheme),
             ] else if (_selectedTabIndex == 1) ...[
               const SizedBox(
-                height: 800, // Minimalna wysokość na listę, można zmienić na Expanded w przyszłości
+                height: 800,
                 child: ProductsListScreen(),
               ),
             ]
@@ -186,7 +187,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   FloatingActionButton.extended(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                     heroTag: 'reportErrorFab',
-                    onPressed: () {},
+                    onPressed: () => DialogUtils.showReportBugDialog(context),
                     backgroundColor: colorScheme.primaryContainer,
                     foregroundColor: colorScheme.onPrimaryContainer,
                     elevation: 1,

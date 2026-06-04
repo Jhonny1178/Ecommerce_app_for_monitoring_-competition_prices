@@ -2,7 +2,7 @@ from flask import Blueprint, request, session, jsonify
 import psycopg2.extras
 import requests
 import json
-from utils import get_db, hash_password
+from utils import get_db, hash_password, admin_required
 import psycopg2
 from psycopg2 import errors
 import smtplib
@@ -319,5 +319,91 @@ def subscription_buy():
         
         session["status"] = "active"
         return jsonify({"ok": True, "message": "Subscription activated successfully."})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@auth_bp.route("/api/report_bug", methods=["POST"])
+def api_report_bug():
+    data = request.get_json() or {}
+    message = data.get("message", "").strip()
+    if not message:
+        return jsonify({"ok": False, "error": "Brak treści"}), 400
+
+    user_id = session.get("user_id")
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO error_logs (user_id, category, message, error_type, is_reviewed)
+            VALUES (%s, 'Klient', %s, 'Zgłoszony', FALSE)
+        """, (user_id, message))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    
+@auth_bp.route("/api/admin/error_logs", methods=["GET"])
+@admin_required
+def get_error_logs():
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    offset = (page - 1) * per_page
+    
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cur.execute("SELECT COUNT(id) as total FROM error_logs")
+        total_items = cur.fetchone()['total']
+        
+        cur.execute("""
+            SELECT id, category, error_code, error_type, is_reviewed, message,
+                   TO_CHAR(created_at, 'DD.MM.YYYY HH24:MI') as created_at_str,
+                   TO_CHAR(resolved_at, 'DD.MM.YYYY HH24:MI') as resolved_at_str
+            FROM error_logs
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """, (per_page, offset))
+        logs = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        import math
+        return jsonify({
+            "ok": True, 
+            "data": logs,
+            "pagination": {
+                "total_items": total_items,
+                "current_page": page,
+                "per_page": per_page,
+                "total_pages": math.ceil(total_items / per_page) if total_items > 0 else 1
+            }
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@auth_bp.route("/api/admin/error_logs/<int:log_id>/review", methods=["POST"])
+@admin_required
+def review_error_log(log_id):
+    data = request.get_json() or {}
+    is_reviewed = data.get("is_reviewed", True)
+    
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        
+        if is_reviewed:
+            cur.execute("UPDATE error_logs SET is_reviewed = TRUE, resolved_at = CURRENT_TIMESTAMP WHERE id = %s", (log_id,))
+        else:
+            cur.execute("UPDATE error_logs SET is_reviewed = FALSE, resolved_at = NULL WHERE id = %s", (log_id,))
+            
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({"ok": True, "message": "Status zaktualizowany"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

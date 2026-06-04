@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'auth_router.dart';
 import 'register_screen_one.dart';
 import 'register_screen_two.dart';
+import '../../../core/utils/dialog_utils.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -106,7 +107,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   void _prevStep() => setState(() => _registerStep = 1);
 
   bool get _isLoginValid {
-    //return _emailController.text.contains('@') && _passwordController.text.isNotEmpty;
     return _emailController.text.isNotEmpty && _passwordController.text.isNotEmpty;
   }
 
@@ -132,7 +132,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     borderRadius: BorderRadius.circular(30),
                   ),
                   heroTag: 'reportErrorFab',
-                  onPressed: () {},
+                  onPressed: () => DialogUtils.showReportBugDialog(context),
                   backgroundColor: colorScheme.primaryContainer,
                   foregroundColor: colorScheme.onPrimaryContainer,
                   elevation: 1,

@@ -56,6 +56,18 @@ CREATE TABLE IF NOT EXISTS scraper_logs (
     created_at  TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS error_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER,
+    category VARCHAR(50) NOT NULL,
+    error_code VARCHAR(100),
+    message TEXT,
+    error_type VARCHAR(50) NOT NULL,
+    is_reviewed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP
+);
+
 -- 4. Przykładowy superadmin (bez klienta)
 INSERT INTO users (username, password_hash, is_admin, client_id, status)
 VALUES (
