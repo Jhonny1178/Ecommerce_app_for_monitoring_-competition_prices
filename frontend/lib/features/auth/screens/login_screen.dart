@@ -293,6 +293,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           TextField(
             controller: _passwordController,
             onChanged: (val) => setState(() {}),
+            onSubmitted: (_) => _login(),
             obscureText: _isPasswordObscured,
             decoration: InputDecoration(
               filled: true,

@@ -4,6 +4,7 @@ import 'package:tonten/core/api/api_client.dart';
 import 'dart:convert';
 import '../../products/screens/products_list_screen.dart';
 import '../../../core/utils/dialog_utils.dart';
+import '../../auth/screens/login_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -21,6 +22,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _fetchStats();
+  }
+
+  void _logout() async {
+    await ApiClient.post(Uri.parse("/api/logout"));
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
   }
 
   Future<void> _fetchStats() async {
@@ -46,52 +56,99 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       backgroundColor: colorScheme.surface,
-      appBar: _buildAppBar(colorScheme),
-      floatingActionButton: _buildExpandableFab(colorScheme),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(32.0),
+      floatingActionButton: _buildExpandableFab(colorScheme), // Rozwijane menu z boku zostaje
+      
+      body: SafeArea(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildCustomTabBar(colorScheme),
-            const SizedBox(height: 32),
-            if (_selectedTabIndex == 0) ...[
-              _isLoadingStats
-                ? const Center(child: CircularProgressIndicator())
-                : _buildKpiSection(colorScheme),
-            ] else if (_selectedTabIndex == 1) ...[
-              const SizedBox(
-                height: 800,
-                child: ProductsListScreen(),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.only(top: 10, bottom: 10), 
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: colorScheme.outlineVariant, 
+                    width: 1,
+                  ),
+                ),
               ),
-            ]
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Text(
+                    'e-ROCH',
+                    style: GoogleFonts.overpass(
+                      fontSize: 64,
+                    ),
+                  ),
+                  Positioned(
+                    right: 16,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(icon: const Icon(Icons.notifications_none, size: 28), onPressed: () {}),
+                        PopupMenuButton<String>(
+                          offset: const Offset(0, 50),
+                          icon: const Icon(Icons.account_circle_outlined, size: 28),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          onSelected: (value) {
+                            if (value == 'logout') _logout();
+                          },
+                          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                            PopupMenuItem<String>(
+                              value: 'logout',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.logout, color: colorScheme.error, size: 20),
+                                  const SizedBox(width: 12),
+                                  Text('Wyloguj się', style: TextStyle(color: colorScheme.error, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // --- KONIEC NAGŁÓWKA ---
+
+            // --- 2. GŁÓWNA TREŚĆ STRONY ---
+            // Używamy Expanded, by strona wiedziała, że ma zająć resztę ekranu
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(32.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildCustomTabBar(colorScheme),
+                    const SizedBox(height: 32),
+                    
+                    if (_selectedTabIndex == 0) ...[
+                      _isLoadingStats
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildKpiSection(colorScheme),
+                    ] else if (_selectedTabIndex == 1) ...[
+                      const SizedBox(
+                        height: 800,
+                        child: ProductsListScreen(),
+                      ),
+                    ]
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
-  PreferredSizeWidget _buildAppBar(ColorScheme colorScheme) {
-    return AppBar(
-      backgroundColor: colorScheme.surface,
-      elevation: 0,
-      centerTitle: true,
-      toolbarHeight: 80,
-      title: Text(
-        'e-ROCH',
-        style: GoogleFonts.overpass(fontSize: 64),
-      ),
-      actions: [
 
-        IconButton(
-          icon: const Icon(Icons.account_circle_outlined, size: 28),
-          onPressed: () {},
-        ),
-        const SizedBox(width: 16),
-      ],
-    );
-  }
   Widget _buildCustomTabBar(ColorScheme colorScheme) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -170,6 +227,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+
   Widget _buildExpandableFab(ColorScheme colorScheme) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -235,7 +293,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Icon(
               _isFabExpanded ? Icons.close : Icons.menu,
               key: ValueKey<bool>(_isFabExpanded),
-            ),                             
+            ),
           ),
         ),
       ],
