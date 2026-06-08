@@ -480,10 +480,15 @@ def get_registration_requests():
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
         cur.execute("""
-            SELECT id, company_name, email, competitor_urls, status, 
-                   TO_CHAR(created_at, 'DD.MM.YYYY HH24:MI') as requested_date 
-            FROM registration_requests 
-            ORDER BY created_at DESC
+            SELECT id, 
+                   first_name || ' ' || last_name AS company_name, 
+                   username AS email, 
+                   competitor_urls, 
+                   status, 
+                   '-' as requested_date 
+            FROM users 
+            WHERE status = 'pending_file'
+            ORDER BY id DESC
         """)
         requests = cur.fetchall()
         cur.close()
