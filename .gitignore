@@ -25,3 +25,4 @@ frontend/ios/.symlinks/
 frontend/ios/Flutter/Flutter.podspec
 .DS_Store
 Thumbs.db
+data_output/
