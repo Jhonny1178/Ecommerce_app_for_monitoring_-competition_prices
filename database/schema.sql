@@ -1,0 +1,109 @@
+-- database/schema.sql
+
+-- 1. Tabela klientów
+CREATE TABLE IF NOT EXISTS clients (
+    id                      SERIAL PRIMARY KEY,
+    name                    TEXT NOT NULL,
+    slug                    TEXT UNIQUE NOT NULL,
+    store_prefix            TEXT UNIQUE NOT NULL,
+    is_active               BOOLEAN DEFAULT TRUE,
+    created_at              TIMESTAMP DEFAULT NOW(),
+
+    source_type             TEXT NOT NULL,
+    source_path             TEXT,
+    file_format             TEXT,
+    field_mapping           JSONB NOT NULL DEFAULT '{}',
+
+    spiders_to_run          TEXT[] DEFAULT ARRAY['Calavado','jmbdesing','pod_pierzyna'],
+
+    match_name_threshold    FLOAT DEFAULT 90.0,
+    match_color_threshold   FLOAT DEFAULT 80.0,
+    match_maker_threshold   FLOAT DEFAULT 80.0
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id               SERIAL PRIMARY KEY,
+    username         TEXT UNIQUE NOT NULL,
+    password_hash    TEXT NOT NULL,
+    is_admin         BOOLEAN DEFAULT FALSE,
+    client_id        INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    status           TEXT DEFAULT 'active',
+    first_name       TEXT,
+    last_name        TEXT,
+    company_domain   TEXT,
+    competitor_urls  JSONB,
+    rejection_reason TEXT
+);
+
+-- 3. Logi uruchomień pipeline
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    id          SERIAL PRIMARY KEY,
+    client_id   INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+    started_at  TIMESTAMP DEFAULT NOW(),
+    finished_at TIMESTAMP,
+    status      TEXT DEFAULT 'running',
+    error_msg   TEXT
+);
+
+-- 3a. Logi procesu generowania scraperów (AI Generator)
+CREATE TABLE IF NOT EXISTS scraper_logs (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    url         TEXT NOT NULL,
+    step        TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    message     TEXT,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS error_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER,
+    category VARCHAR(50) NOT NULL,
+    error_code VARCHAR(100),
+    message TEXT,
+    error_type VARCHAR(50) NOT NULL,
+    is_reviewed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP
+);
+
+-- 4. Przykładowy superadmin (bez klienta)
+INSERT INTO users (username, password_hash, is_admin, client_id, status)
+VALUES (
+    'admin',
+    encode(sha256('admin123'::bytea), 'hex'),
+    TRUE,
+    NULL,
+    'active'
+)
+ON CONFLICT (username) DO NOTHING;
+
+-- 5. Przykładowy klient testowy
+INSERT INTO clients (
+    name, slug, store_prefix, is_active,
+    source_type, source_path, file_format,
+    field_mapping, spiders_to_run
+) VALUES (
+    'Sklep Testowy',
+    'sklep_testowy',
+    'sklep_testowy',
+    TRUE,
+    'local',
+    '/opt/airflow/dags/data/moje_produkty.csv',
+    'csv',
+    '{"SKU": "sku", "URL": "url", "CENA": "price_normal", "OPIS": "description", "KOLOR": "color", "MARKA": "manufacturer", "NAZWA": "name", "SKLEP": "store", "ROZMIAR": "size", "ZDJECIE": "image", "KATEGORIA": "category", "CENA_PROMO": "price_special", "DOSTEPNOSC": "availability", "DATA_POBRANIA": "date_of_download"}'::jsonb,
+    ARRAY['spider_dummy']
+)
+ON CONFLICT (slug) DO NOTHING;
+
+-- 6. Konto użytkownika dla klienta testowego
+INSERT INTO users (username, password_hash, is_admin, client_id, status)
+VALUES (
+    'klient1',
+    encode(sha256('klient123'::bytea), 'hex'),
+    FALSE,
+    (SELECT id FROM clients WHERE slug = 'sklep_testowy'),
+    'active'
+)
+ON CONFLICT (username) DO NOTHING;

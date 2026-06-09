@@ -57,7 +57,7 @@ DOWNLOADER_MIDDLEWARES = {
    # "ecommerce_price_comparer.middlewares.EcommercePriceComparerDownloaderMiddleware": 543,
    "ecommerce_price_comparer.middlewares.FakeUserAgentMiddleware": 400,
     # "rotating_proxies.middlewares.RotatingProxyMiddleware": 610,
-    # "rotating_proxies.middlewares.BanDetectionMiddleware":620,
+    "rotating_proxies.middlewares.BanDetectionMiddleware":620,
     # "ecommerce_price_comparer.middlewares.GeonodeProxyMiddleware": 410,
 }
 
@@ -98,7 +98,9 @@ AUTOTHROTTLE_DEBUG = False
 #HTTPCACHE_DIR = "httpcache"
 #HTTPCACHE_IGNORE_HTTP_CODES = []
 #HTTPCACHE_STORAGE = "scrapy.extensions.httpcache.FilesystemCacheStorage"
-
+RETRY_ENABLED = True
+RETRY_TIMES = 3
+RETRY_HTTP_CODES = [429, 500, 502, 503, 504]
 # Set settings whose default value is deprecated to a future-proof value
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
