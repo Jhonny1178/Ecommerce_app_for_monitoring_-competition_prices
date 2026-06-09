@@ -61,20 +61,37 @@ def przygotuj_srodowisko_klienta(nazwa_firmy: str):
     return katalog_klienta
 
 
-def uruchom_autonomiczny_potok(url_sklepu, nazwa_firmy, docelowy_limit_scrapowania=None):
+def log_scraper_step(cur, user_id: int, url: str, step: str, status: str, message: str = ""):
+    try:
+        cur.execute(
+            "INSERT INTO scraper_logs (user_id, url, step, status, message) VALUES (%s, %s, %s, %s, %s)",
+            (user_id, url, step, status, message)
+        )
+    except Exception as e:
+        print(f"[!] Błąd zapisu logu: {e}")
+
+def uruchom_autonomiczny_potok(cur, request_id: int, url_sklepu: str, nazwa_firmy: str, docelowy_limit_scrapowania=None):
     nazwa_sklepu = pobierz_nazwe_sklepu(url_sklepu)
     print(f"\nURUCHAMIAM AI DLA SKLEPU: {nazwa_sklepu.upper()} (Klient: {nazwa_firmy})")
+    log_scraper_step(cur, request_id, url_sklepu, "Sitemap Discovery", "info", "Rozpoczynam wyszukiwanie sitemapy")
 
     # KROK 0-2: Sitemapy i linki
     znalezione_sitemapy = find_sitemap(url_sklepu)
     if not znalezione_sitemapy:
         print(f"[!] Błąd: Nie znaleziono sitemapy dla {url_sklepu}.")
+        log_scraper_step(cur, request_id, url_sklepu, "Sitemap Discovery", "error", "Nie znaleziono sitemapy")
         return False
+    
+    log_scraper_step(cur, request_id, url_sklepu, "Sitemap Discovery", "success", "Sitemapa znaleziona")
+    log_scraper_step(cur, request_id, url_sklepu, "Product Links", "info", "Pobieranie linków produktów")
 
     czyste_linki = get_product_links(znalezione_sitemapy)
     if not czyste_linki:
         print(f"[!] Błąd: Brak linków dla {url_sklepu}.")
+        log_scraper_step(cur, request_id, url_sklepu, "Product Links", "error", "Brak linków w sitemapie")
         return False
+        
+    log_scraper_step(cur, request_id, url_sklepu, "Product Links", "success", f"Pobrano {len(czyste_linki)} linków")
 
     linki_do_pracy = list(czyste_linki)[:docelowy_limit_scrapowania] if docelowy_limit_scrapowania else list(
         czyste_linki)
@@ -83,18 +100,24 @@ def uruchom_autonomiczny_potok(url_sklepu, nazwa_firmy, docelowy_limit_scrapowan
     os.makedirs("data_output", exist_ok=True)
     probki_dla_llm = wybierz_pewne_probki(set(linki_do_pracy), ilosc=3)
     plik_datasetu = "data_output/dataset_dla_llm.txt"
+    log_scraper_step(cur, request_id, url_sklepu, "LLM Dataset", "info", "Generowanie zestawu danych HTML dla LLM")
     build_llm_dataset(probki_dla_llm)
+    log_scraper_step(cur, request_id, url_sklepu, "LLM Dataset", "success", "Wygenerowano próbki dla LLM")
 
     # Generowanie Mapy
     print("[AI] Generowanie mapy CSS...")
+    log_scraper_step(cur, request_id, url_sklepu, "CSS Mapping", "info", "Uruchomiono model LLM do mapowania CSS")
     generate_scraper_from_html(plik_datasetu, "data_output/selectors_map.json")
+    log_scraper_step(cur, request_id, url_sklepu, "CSS Mapping", "success", "Mapa wygenerowana")
 
     # KROK 6: Zapis Spidera PROSTO DO FOLDERU KLIENTA
     katalog_klienta = przygotuj_srodowisko_klienta(nazwa_firmy)
     plik_spidera = os.path.join(katalog_klienta, f"{nazwa_sklepu}_spider.py")
 
     # Przekazujemy czyste_linki, aby Twój generator wpisał je jako string w pliku .py
+    log_scraper_step(cur, request_id, url_sklepu, "Spider Builder", "info", "Tworzenie pliku pająka Scrapy")
     generate_spider_file("data_output/selectors_map.json", plik_spidera, nazwa_sklepu, links=czyste_linki)
+    log_scraper_step(cur, request_id, url_sklepu, "Spider Builder", "success", f"Zapisano w {plik_spidera}")
     print(f"-> Sukces! Pająk zapisany bezpośrednio na produkcję: {plik_spidera}")
 
     return True
@@ -109,15 +132,16 @@ def procesuj_wniosek_w_tle(request_id: int, company_name: str, urls: List[str]):
         conn.autocommit = True
         cur = conn.cursor()
 
-        cur.execute("UPDATE registration_requests SET status = 'analyzing' WHERE id = %s", (request_id,))
+        cur.execute("UPDATE users SET status = 'analyzing' WHERE id = %s", (request_id,))
 
         for url in urls:
             try:
-                uruchom_autonomiczny_potok(url, company_name, docelowy_limit_scrapowania=10)
+                uruchom_autonomiczny_potok(cur, request_id, url, company_name, docelowy_limit_scrapowania=10)
             except Exception as e:
                 print(f"[!] Błąd krytyczny dla {url}: {e}")
+                log_scraper_step(cur, request_id, url, "Pipeline Error", "error", str(e))
 
-        cur.execute("UPDATE registration_requests SET status = 'completed' WHERE id = %s", (request_id,))
+        cur.execute("UPDATE users SET status = 'completed' WHERE id = %s", (request_id,))
         print(f"\n[WORKER] Koniec potoku. Pliki dla '{company_name}' dostarczone.")
 
     except Exception as e:

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+from flask import Flask, request, session, jsonify
 import psycopg2.extras
 from dotenv import load_dotenv
 from flask_cors import CORS
@@ -20,23 +20,7 @@ app.secret_key = os.environ.get("SECRET_KEY", "super-tajny-klucz")
 
 CORS(app, supports_credentials=True)
 
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    return render_template("dashboard.html",
-                           username=session["username"],
-                           is_admin=session.get("is_admin", False))
 
-@app.route("/test-ai")
-@login_required
-def test_ai():
-    return render_template("product_test.html")
-
-
-@app.route("/admin")
-@admin_required
-def admin():
-    return render_template("admin.html", username=session["username"])
 
 ALLOWED_SORTS = {
     "id", "sku", "name", "size", "color", "manufacturer",

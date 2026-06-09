@@ -22,11 +22,17 @@ CREATE TABLE IF NOT EXISTS clients (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-    id            SERIAL PRIMARY KEY,
-    username      TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    is_admin      BOOLEAN DEFAULT FALSE,
-    client_id     INTEGER REFERENCES clients(id) ON DELETE SET NULL
+    id               SERIAL PRIMARY KEY,
+    username         TEXT UNIQUE NOT NULL,
+    password_hash    TEXT NOT NULL,
+    is_admin         BOOLEAN DEFAULT FALSE,
+    client_id        INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    status           TEXT DEFAULT 'active',
+    first_name       TEXT,
+    last_name        TEXT,
+    company_domain   TEXT,
+    competitor_urls  JSONB,
+    rejection_reason TEXT
 );
 
 -- 3. Logi uruchomień pipeline
@@ -39,13 +45,37 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     error_msg   TEXT
 );
 
+-- 3a. Logi procesu generowania scraperów (AI Generator)
+CREATE TABLE IF NOT EXISTS scraper_logs (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    url         TEXT NOT NULL,
+    step        TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    message     TEXT,
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS error_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER,
+    category VARCHAR(50) NOT NULL,
+    error_code VARCHAR(100),
+    message TEXT,
+    error_type VARCHAR(50) NOT NULL,
+    is_reviewed BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP
+);
+
 -- 4. Przykładowy superadmin (bez klienta)
-INSERT INTO users (username, password_hash, is_admin, client_id)
+INSERT INTO users (username, password_hash, is_admin, client_id, status)
 VALUES (
     'admin',
     encode(sha256('admin123'::bytea), 'hex'),
     TRUE,
-    NULL
+    NULL,
+    'active'
 )
 ON CONFLICT (username) DO NOTHING;
 
@@ -68,21 +98,12 @@ INSERT INTO clients (
 ON CONFLICT (slug) DO NOTHING;
 
 -- 6. Konto użytkownika dla klienta testowego
-INSERT INTO users (username, password_hash, is_admin, client_id)
+INSERT INTO users (username, password_hash, is_admin, client_id, status)
 VALUES (
     'klient1',
     encode(sha256('klient123'::bytea), 'hex'),
     FALSE,
-    (SELECT id FROM clients WHERE slug = 'sklep_testowy')
+    (SELECT id FROM clients WHERE slug = 'sklep_testowy'),
+    'active'
 )
 ON CONFLICT (username) DO NOTHING;
-
--- Tabela wniosków rejestracyjnych
-CREATE TABLE IF NOT EXISTS registration_requests (
-    id SERIAL PRIMARY KEY,
-    company_name TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    competitor_urls JSONB NOT NULL,
-    status TEXT DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT NOW()
-);
