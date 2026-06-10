@@ -15,7 +15,7 @@ class AdminPanelScreen extends StatefulWidget {
 
 class _AdminPanelScreenState extends State<AdminPanelScreen> {
   int _selectedTabIndex = 0;
-  
+
   bool _isLoadingUsers = true;
   List<dynamic> _users = [];
 
@@ -120,6 +120,127 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       debugPrint("Error fetching reg requests: $e");
     } finally {
       setState(() => _isLoadingRegRequests = false);
+    }
+  }
+
+  Future<void> _approveRegistrationRequest(
+    Map<String, dynamic> req, {
+    bool closeDialog = false,
+  }) async {
+    try {
+      final requestId = req['request_id'];
+      final userId = req['user_id'] ?? req['id'];
+
+      final response = await ApiClient.post(
+        Uri.parse("/api/admin/approve_user"),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "request_id": requestId,
+          "user_id": userId,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['ok'] == true) {
+        if (mounted) {
+          if (closeDialog) {
+            Navigator.pop(context);
+          }
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Wniosek został zatwierdzony. Klient i tabele zostały utworzone.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+
+        await _fetchPendingUsers();
+        await _fetchStores();
+        await _fetchRegRequests();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(data['error']?.toString() ?? 'Nie udało się zatwierdzić wniosku.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Error approving registration request: $e");
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Błąd zatwierdzania wniosku: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _rejectRegistrationRequest(
+    Map<String, dynamic> req, {
+    bool closeDialog = false,
+  }) async {
+    try {
+      final requestId = req['request_id'];
+      final userId = req['user_id'] ?? req['id'];
+
+      final response = await ApiClient.post(
+        Uri.parse("/api/admin/reject_user"),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "request_id": requestId,
+          "user_id": userId,
+          "reason": "Odrzucono przez administratora",
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && data['ok'] == true) {
+        if (mounted) {
+          if (closeDialog) {
+            Navigator.pop(context);
+          }
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Wniosek został odrzucony.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+
+        await _fetchPendingUsers();
+        await _fetchStores();
+        await _fetchRegRequests();
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(data['error']?.toString() ?? 'Nie udało się odrzucić wniosku.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Error rejecting registration request: $e");
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Błąd odrzucania wniosku: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -293,7 +414,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(
-                    color: colorScheme.outlineVariant, 
+                    color: colorScheme.outlineVariant,
                     width: 1,
                   ),
                 ),
@@ -301,7 +422,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Twój wyśrodkowany tekst
                   Text(
                     'e-ROCH',
                     style: GoogleFonts.overpass(
@@ -348,7 +468,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   children: [
                     _buildCustomTabBar(colorScheme),
                     const SizedBox(height: 32),
-                    
+
                     if (_selectedTabIndex == 0) ...[
                       _buildDashboardTab(),
                     ] else if (_selectedTabIndex == 1) ...[
@@ -392,11 +512,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     return InkWell(
       onTap: () {
         setState(() => _selectedTabIndex = index);
-        if (index == 0 && _users.isEmpty) _fetchPendingUsers();
+
+        if (index == 0) _fetchPendingUsers();
         if (index == 1 && _logs.isEmpty) _fetchErrorLogs();
+
         if (index == 3) {
-          if (_stores.isEmpty) _fetchStores();
-          if (_regRequests.isEmpty) _fetchRegRequests();
+          _fetchStores();
+          _fetchRegRequests();
         }
       },
       borderRadius: BorderRadius.circular(20),
@@ -428,16 +550,23 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       itemBuilder: (context, index) {
         final u = _users[index];
         Color statusColor = Colors.grey;
-        String statusText = u['status'];
-        if (u['status'] == 'pending_approval') {
+        String statusText = (u['request_status'] ?? u['status'] ?? u['user_status'] ?? '-').toString();
+
+        if (statusText == 'pending_admin') {
           statusColor = Colors.orange;
-          statusText = 'Oczekuje na wdrożenie';
-        } else if (u['status'] == 'analyzing') {
+          statusText = 'Oczekuje na zatwierdzenie';
+        } else if (statusText == 'onboarding_submitted') {
           statusColor = Colors.blue;
-          statusText = 'Tworzenie Scraperów';
-        } else if (u['status'] == 'completed') {
+          statusText = 'Dane onboardingowe przesłane';
+        } else if (statusText == 'scraper_review') {
+          statusColor = Colors.purple;
+          statusText = 'Scrapery do weryfikacji';
+        } else if (statusText == 'approved') {
           statusColor = Colors.green;
-          statusText = 'Gotowy do weryfikacji';
+          statusText = 'Zatwierdzony';
+        } else if (statusText == 'rejected') {
+          statusColor = Colors.red;
+          statusText = 'Odrzucony';
         }
 
         return Card(
@@ -460,9 +589,15 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('${u['first_name']} ${u['last_name']} (${u['username']})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                        Text(
+                          '${u['first_name'] ?? ''} ${u['last_name'] ?? ''} (${u['username'] ?? '-'})',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
                         const SizedBox(height: 4),
-                        Text('Firma: ${u['company_domain']}', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                        Text(
+                          'Firma: ${u['requested_store_name'] ?? u['company_domain'] ?? '-'}',
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        ),
                       ],
                     ),
                   ),
@@ -510,7 +645,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 ),
               ),
             ),
-            
+
             _buildDropdownFilter(
               label: 'Kategoria',
               currentValue: _filterCategory,
@@ -518,21 +653,21 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               onChanged: (val) { setState(() { _filterCategory = val; _currentLogPage = 1; }); _fetchErrorLogs(); },
               colorScheme: colorScheme,
             ),
-            
+
             _buildDateFilter(
               label: 'Data: przed',
               currentDate: _filterDateBefore,
               isBefore: true,
               colorScheme: colorScheme,
             ),
-            
+
             _buildDateFilter(
               label: 'Data: po',
               currentDate: _filterDateAfter,
               isBefore: false,
               colorScheme: colorScheme,
             ),
-            
+
             _buildDropdownFilter(
               label: 'Typ błędu',
               currentValue: _filterErrorType,
@@ -540,7 +675,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               onChanged: (val) { setState(() { _filterErrorType = val; _currentLogPage = 1; }); _fetchErrorLogs(); },
               colorScheme: colorScheme,
             ),
-            
+
             _buildDropdownFilter(
               label: 'Czy przejrzany?',
               currentValue: _filterIsReviewed == null ? null : (_filterIsReviewed! ? 'Tak' : 'Nie'),
@@ -565,7 +700,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ],
         ),
         const SizedBox(height: 24),
-        
+
         Container(
           decoration: BoxDecoration(
             color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
@@ -575,7 +710,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             builder: (context, constraints) {
               return _isLoadingLogs
                 ? const Padding(padding: EdgeInsets.all(48.0), child: Center(child: CircularProgressIndicator()))
-                : _logs.isEmpty 
+                : _logs.isEmpty
                     ? const Padding(padding: EdgeInsets.all(48.0), child: Center(child: Text("Brak zgłoszonych błędów pasujących do kryteriów.")))
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -599,7 +734,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                 rows: _logs.map((log) {
                                   final bool isReviewed = log['is_reviewed'] == true;
                                   return DataRow(
-                                    onSelectChanged: (_) => _showErrorModal(log), 
+                                    onSelectChanged: (_) => _showErrorModal(log),
                                     cells: [
                                       DataCell(Text(log['category'] ?? '-')),
                                       DataCell(Text(log['error_code'] ?? 'null')),
@@ -648,9 +783,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         Text('Aktualnie obsługiwane sklepy', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
         const SizedBox(height: 16),
         _buildStoresTable(colorScheme),
-        
+
         const SizedBox(height: 48),
-        
+
         Text('Wnioski o rejestrację', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
         const SizedBox(height: 16),
         _buildRegRequestsTable(colorScheme),
@@ -702,8 +837,19 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   }
 
   Widget _buildRegRequestsTable(ColorScheme colorScheme) {
-    if (_isLoadingRegRequests) return const Padding(padding: EdgeInsets.all(24.0), child: Center(child: CircularProgressIndicator()));
-    if (_regRequests.isEmpty) return const Padding(padding: EdgeInsets.all(24.0), child: Center(child: Text('Brak wniosków o rejestrację.')));
+    if (_isLoadingRegRequests) {
+      return const Padding(
+        padding: EdgeInsets.all(24.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_regRequests.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(24.0),
+        child: Center(child: Text('Brak wniosków o rejestrację.')),
+      );
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -717,37 +863,103 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: DataTable(
-                showCheckboxColumn: false, // Konieczne, żeby ukryć checkboxy po lewej!
-                headingRowColor: MaterialStateProperty.resolveWith((states) => colorScheme.primaryContainer.withOpacity(0.3)),
+                showCheckboxColumn: false,
+                headingRowColor: MaterialStateProperty.resolveWith(
+                  (states) => colorScheme.primaryContainer.withOpacity(0.3),
+                ),
                 dataRowMaxHeight: 65,
                 columns: const [
-                  DataColumn(label: Expanded(child: Text('Firma', style: TextStyle(fontWeight: FontWeight.bold)))),
-                  DataColumn(label: Expanded(child: Text('E-mail', style: TextStyle(fontWeight: FontWeight.bold)))),
-                  DataColumn(label: Expanded(child: Text('Konkurencja', style: TextStyle(fontWeight: FontWeight.bold)))),
-                  DataColumn(label: Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold)))),
-                  DataColumn(label: Expanded(child: Text('Data wniosku', style: TextStyle(fontWeight: FontWeight.bold)))),
+                  DataColumn(
+                    label: Expanded(
+                      child: Text('Firma', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Expanded(
+                      child: Text('E-mail', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Expanded(
+                      child: Text('Konkurencja', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Expanded(
+                      child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Expanded(
+                      child: Text('Data wniosku', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  DataColumn(
+                    label: Expanded(
+                      child: Text('Akcje', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
                 ],
                 rows: _regRequests.map((req) {
                   String compText = 'Brak';
+
                   if (req['competitor_urls'] != null && req['competitor_urls'] is List) {
                     compText = '${(req['competitor_urls'] as List).length} adresy';
                   }
 
+                  final status = req['status']?.toString() ?? '-';
+                  final canModerate = status == 'pending_admin';
+
                   return DataRow(
-                    onSelectChanged: (_) => _showRegRequestModal(req), // Kliknięcie w wiersz
+                    onSelectChanged: (_) => _showRegRequestModal(req),
                     cells: [
                       DataCell(Text(req['company_name'] ?? '-')),
                       DataCell(Text(req['email'] ?? '-')),
                       DataCell(Text(compText)),
-                      DataCell(Text(req['status'] ?? '-', style: TextStyle(color: req['status'] == 'pending' ? colorScheme.primary : colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold))),
+                      DataCell(
+                        Text(
+                          status,
+                          style: TextStyle(
+                            color: status == 'pending_admin'
+                                ? Colors.orange
+                                : status == 'approved'
+                                    ? Colors.green
+                                    : status == 'rejected'
+                                        ? Colors.red
+                                        : colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                       DataCell(Text(req['requested_date'] ?? '-')),
+                      DataCell(
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Zatwierdź',
+                              icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+                              onPressed: canModerate
+                                  ? () => _approveRegistrationRequest(req)
+                                  : null,
+                            ),
+                            IconButton(
+                              tooltip: 'Odrzuć',
+                              icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                              onPressed: canModerate
+                                  ? () => _rejectRegistrationRequest(req)
+                                  : null,
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   );
                 }).toList(),
               ),
             ),
           );
-        }
+        },
       ),
     );
   }
@@ -836,18 +1048,20 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       ),
     );
   }
-  // --- NOWE OKIENKO SZCZEGÓŁÓW WNIOSKU ---
+
   void _showRegRequestModal(Map<String, dynamic> req) {
     showDialog(
       context: context,
       builder: (context) {
         final colorScheme = Theme.of(context).colorScheme;
-        
-        // Wyciąganie linków z JSONa
+
         List<dynamic> urls = [];
         if (req['competitor_urls'] != null && req['competitor_urls'] is List) {
           urls = req['competitor_urls'] as List;
         }
+
+        final status = req['status']?.toString() ?? '-';
+        final canModerate = status == 'pending_admin';
 
         return Dialog(
           backgroundColor: colorScheme.surface,
@@ -862,26 +1076,56 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Szczegóły wniosku', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                    const Text(
+                      'Szczegóły wniosku',
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 24),
-                Text('Firma: ${req['company_name']}', style: const TextStyle(fontSize: 16)),
+
+                Text(
+                  'Firma: ${req['company_name'] ?? '-'}',
+                  style: const TextStyle(fontSize: 16),
+                ),
                 const SizedBox(height: 8),
-                Text('E-mail: ${req['email']}', style: const TextStyle(fontSize: 16)),
+
+                Text(
+                  'E-mail: ${req['email'] ?? '-'}',
+                  style: const TextStyle(fontSize: 16),
+                ),
                 const SizedBox(height: 8),
-                Text('Data: ${req['requested_date']}', style: const TextStyle(fontSize: 16)),
+
+                Text(
+                  'Status: $status',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+
+                Text(
+                  'Data: ${req['requested_date'] ?? '-'}',
+                  style: const TextStyle(fontSize: 16),
+                ),
                 const SizedBox(height: 24),
-                
-                const Text('Wskazana konkurencja:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+
+                const Text(
+                  'Wskazana konkurencja:',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 12),
-                
+
                 if (urls.isEmpty)
-                  Text('Klient nie wskazał żadnej konkurencji.', style: TextStyle(color: colorScheme.onSurfaceVariant))
+                  Text(
+                    'Klient nie wskazał żadnej konkurencji.',
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  )
                 else
                   Container(
-                    height: urls.length > 3 ? 200 : urls.length * 60.0, // Dynamiczna wysokość
+                    height: urls.length > 3 ? 200 : urls.length * 60.0,
                     decoration: BoxDecoration(
                       border: Border.all(color: colorScheme.outlineVariant),
                       borderRadius: BorderRadius.circular(8),
@@ -889,14 +1133,53 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     ),
                     child: ListView.separated(
                       itemCount: urls.length,
-                      separatorBuilder: (context, index) => Divider(color: colorScheme.outlineVariant, height: 1),
+                      separatorBuilder: (context, index) => Divider(
+                        color: colorScheme.outlineVariant,
+                        height: 1,
+                      ),
                       itemBuilder: (context, index) {
                         return ListTile(
                           leading: Icon(Icons.link, color: colorScheme.primary),
-                          title: Text(urls[index].toString(), style: const TextStyle(fontSize: 14)),
+                          title: Text(
+                            urls[index].toString(),
+                            style: const TextStyle(fontSize: 14),
+                          ),
                         );
                       },
                     ),
+                  ),
+
+                const SizedBox(height: 24),
+
+                if (canModerate)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => _rejectRegistrationRequest(
+                          req,
+                          closeDialog: true,
+                        ),
+                        icon: const Icon(Icons.close),
+                        label: const Text('Odrzuć'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      ElevatedButton.icon(
+                        onPressed: () => _approveRegistrationRequest(
+                          req,
+                          closeDialog: true,
+                        ),
+                        icon: const Icon(Icons.check),
+                        label: const Text('Zatwierdź'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
                   ),
               ],
             ),
@@ -955,7 +1238,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       context: context,
       builder: (context) {
         final colorScheme = Theme.of(context).colorScheme;
-        
+
         return Dialog(
           backgroundColor: colorScheme.surface,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -974,13 +1257,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   ],
                 ),
                 const SizedBox(height: 24),
-                
+
                 ValueListenableBuilder<ThemeMode>(
                   valueListenable: globalThemeNotifier,
                   builder: (context, currentMode, child) {
-                    bool isDark = currentMode == ThemeMode.dark || 
+                    bool isDark = currentMode == ThemeMode.dark ||
                                  (currentMode == ThemeMode.system && Theme.of(context).brightness == Brightness.dark);
-                    
+
                     return SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Tryb ciemny (Dark Mode)', style: TextStyle(fontWeight: FontWeight.bold)),
