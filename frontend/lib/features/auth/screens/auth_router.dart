@@ -10,7 +10,11 @@ class AuthRouter extends StatelessWidget {
   final String status;
   final bool isAdmin;
 
-  const AuthRouter({super.key, required this.status, required this.isAdmin});
+  const AuthRouter({
+    super.key,
+    required this.status,
+    required this.isAdmin,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -19,16 +23,36 @@ class AuthRouter extends StatelessWidget {
     }
 
     switch (status) {
+      case 'pending_admin':
+        return const PendingApprovalScreen();
+
+      case 'onboarding_required':
+        return const FileUploadScreen();
+
+      case 'onboarding_submitted':
+      case 'configured':
+        return const DashboardScreen();
+
+      case 'scraper_generating':
+      case 'scraper_review':
+        return const PendingApprovalScreen();
+
       case 'active':
         return const DashboardScreen();
-      case 'pending_file':
-        return const FileUploadScreen();
-      case 'pending_approval':
-        return const PendingApprovalScreen();
-      case 'awaiting_payment':
-        return const SubscriptionScreen();
+
       case 'rejected':
         return const RejectedScreen();
+
+      // stare statusy zostawione kompatybilnie
+      case 'pending_file':
+        return const FileUploadScreen();
+
+      case 'pending_approval':
+        return const PendingApprovalScreen();
+
+      case 'awaiting_payment':
+        return const SubscriptionScreen();
+
       default:
         return const DashboardScreen();
     }
