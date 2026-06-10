@@ -78,6 +78,7 @@ x-airflow-common:
     - ./airflow/config:/opt/airflow/config
     - ./airflow/plugins:/opt/airflow/plugins
     - ./ecommerce_price_comparer:/opt/airflow/dags/ecommerce_price_comparer
+    - ./storage/file_folder:/shared/onboarding
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -385,6 +386,7 @@ services:
     volumes:
       - ./webapp:/app:delegated
       - /app/__pycache__
+      - ./storage/file_folder:/shared/onboarding
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
@@ -393,6 +395,7 @@ services:
       - APP_DB_NAME=${APP_DB_NAME}
       - APP_DB_USER=${APP_DB_USER}
       - APP_DB_PASSWORD=${APP_DB_PASSWORD}
+      - ONBOARDING_UPLOAD_DIR=/shared/onboarding
     restart: always
     depends_on:
       ecommerce-db:

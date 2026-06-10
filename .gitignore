@@ -27,3 +27,5 @@ frontend/ios/Flutter/Flutter.podspec
 Thumbs.db
 data_output/
 cookies.txt
+storage/file_folder/*
+!storage/file_folder/.gitkeep
