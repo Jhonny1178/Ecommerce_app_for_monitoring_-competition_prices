@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     error_msg   TEXT
 );
 
--- 3a. Logi procesu generowania scraperów (AI Generator)
+-- 3a. Logi procesu generowania scraperów
 CREATE TABLE IF NOT EXISTS scraper_logs (
     id          SERIAL PRIMARY KEY,
     user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,

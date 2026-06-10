@@ -34,7 +34,7 @@ SPIDERS_OUTPUT_DIR = os.environ.get("SPIDERS_DIR", "../ecommerce_price_comparer/
 
 class GenerationRequest(BaseModel):
     request_id: int
-    company_name: str  # NOWOŚĆ: Odbieramy nazwę firmy klienta
+    company_name: str
     urls: List[str]
 
 

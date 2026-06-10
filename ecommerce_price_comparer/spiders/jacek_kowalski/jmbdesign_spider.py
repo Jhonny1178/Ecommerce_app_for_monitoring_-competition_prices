@@ -6,28 +6,28 @@ from ecommerce_price_comparer.items import ProductData
 from ecommerce_price_comparer.utilities.scraper_engine import extract_data_using_map
 
 class ReadyScraperSpider(scrapy.Spider):
-    name = "calvado_spider"
+    name = "jmbdesign_spider"
 
     css_map = {
-        "product_name": "h1.product-name",
-        "product_id": "input[name='product']",
-        "brand": "div.std.centered-column a",
+        "product_name": "h1.product__title-desktop",
+        "product_id": "#product_page_product_id",
+        "brand": None,
         "color": None,
-        "old_price": "p.old-price span.price",
-        "special_price": "p.special-price span.price",
-        "breadcrumbs_wrapper": None,
-        "breadcrumb_item": None,
-        "specifications_row": "div.std.centered-column",
-        "spec_name": "span",
-        "spec_value": "br",
+        "old_price": None,
+        "special_price": ".product-price--current",
+        "breadcrumbs_wrapper": "nav[data-depth='5'] ol.breadcrumb",
+        "breadcrumb_item": "li.breadcrumb-item a",
+        "specifications_row": "table.table table-striped tr",
+        "spec_name": "td:first-child",
+        "spec_value": "td:last-child",
         "variants_wrapper": None,
         "variant_option": None,
         "variant_price_attribute": None,
-        "description": "div.std.centered-column",
+        "description": ".product-description",
     }
 
     def start_requests(self):
-        default_links_path = os.path.join(os.path.dirname(__file__), 'calvado_links.txt')
+        default_links_path = os.path.join(os.path.dirname(__file__), 'jmbdesign_links.txt')
         links_file_path = getattr(self, 'links_file', default_links_path)
 
         if os.path.exists(links_file_path):
@@ -47,7 +47,11 @@ class ReadyScraperSpider(scrapy.Spider):
         if not extracted_data:
             return
 
-        yield self.build_product_data(extracted_data)
+        for data in extracted_data:
+            item = self.build_product_data(data)
+            if item:
+                item['url'] = data.get('url') or response.url
+                yield item
 
     def build_product_data(self, raw_data):
         sku = raw_data.get('sku') or raw_data.get('product_id')

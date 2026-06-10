@@ -45,6 +45,7 @@ class DataCleaner:
         try:
             if isinstance(value, str):
                 return value.strip()
+            return value
         except AttributeError:
             if spider:
                 spider.logger.warning(f"Error with striping: {value}")

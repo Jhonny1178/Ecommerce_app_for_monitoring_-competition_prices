@@ -61,6 +61,7 @@ def api_login():
             session["username"] = user["username"]
             session["is_admin"] = user.get("is_admin", False)
             session["status"] = user.get("status") or "active"
+            session["store_prefix"] = user.get("store_prefix")
             return jsonify({
                 "ok": True, 
                 "message": "Zalogowano pomyślnie",
@@ -122,12 +123,6 @@ def upload_onboarding_file():
 
     f = request.files["file"]
     
-    # Save file somewhere temporarily, e.g. in /tmp or data folder
-    import os
-    os.makedirs("/tmp/onboarding", exist_ok=True)
-    file_path = f"/tmp/onboarding/user_{session['user_id']}_{f.filename}"
-    f.save(file_path)
-
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -135,23 +130,37 @@ def upload_onboarding_file():
         # Change status to pending_approval
         cur.execute("UPDATE users SET status = 'pending_approval' WHERE id = %s", (session['user_id'],))
         
-        # Trigger AI generator
+        # Oczekujemy na zwrotke user_data aby utworzyc odpowiedni folder
         cur.execute("SELECT first_name, last_name, competitor_urls FROM users WHERE id = %s", (session['user_id'],))
         user_data = cur.fetchone()
         conn.commit()
         cur.close()
         conn.close()
 
-        if user_data and user_data[2]:
-            try:
-                payload = {
-                    "request_id": session['user_id'],
-                    "company_name": f"{user_data[0]} {user_data[1]}",
-                    "urls": user_data[2]
-                }
-                requests.post("http://ai_generator:8080/api/check", json=payload, timeout=5)
-            except requests.exceptions.RequestException as e:
-                print(f"Błąd komunikacji z AI: {e}")
+        if user_data:
+            import os
+            nazwa_firmy = f"{user_data[0]} {user_data[1]}"
+            bezpieczna_nazwa = "".join(c if c.isalnum() else "_" for c in nazwa_firmy).lower()
+            
+            # Pobranie docelowego folderu
+            spiders_dir = os.environ.get("SPIDERS_DIR", "ecommerce_price_comparer/spiders")
+            katalog_klienta = os.path.join(spiders_dir, bezpieczna_nazwa)
+            os.makedirs(katalog_klienta, exist_ok=True)
+            
+            # Zapis do folderu z pająkami
+            file_path = os.path.join(katalog_klienta, f.filename)
+            f.save(file_path)
+
+            if user_data[2]:
+                try:
+                    payload = {
+                        "request_id": session['user_id'],
+                        "company_name": f"{user_data[0]} {user_data[1]}",
+                        "urls": user_data[2]
+                    }
+                    requests.post("http://ai_generator:8080/api/check", json=payload, timeout=5)
+                except requests.exceptions.RequestException as e:
+                    print(f"Błąd komunikacji z AI: {e}")
 
         session["status"] = "pending_approval"
         return jsonify({"ok": True, "message": "File uploaded successfully. Awaiting approval."})

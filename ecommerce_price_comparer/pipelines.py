@@ -32,6 +32,14 @@ class EcommercePriceComparerPipeline:
         adapter['color'] = DataCleaner.standardize_color(adapter.get('color'))
         adapter['sku'] = DataCleaner.sku_normalize(adapter.get('name'),adapter.get('color'),adapter.get('size'),adapter.get('manufacturer'))
         adapter['description'] = DataCleaner.clean_description(adapter.get('description'))
+
+        if adapter.get('category'): adapter['category'] = adapter['category'][:100]
+        if adapter.get('manufacturer'): adapter['manufacturer'] = adapter['manufacturer'][:50]
+        if adapter.get('size'): adapter['size'] = adapter['size'][:50]
+        if adapter.get('color'): adapter['color'] = adapter['color'][:50]
+        if adapter.get('store'): adapter['store'] = adapter['store'][:50]
+        if adapter.get('availability'): adapter['availability'] = adapter['availability'][:50]
+
         return item
 class SaveToPostgresSQLPipeline:
     def __init__(self):

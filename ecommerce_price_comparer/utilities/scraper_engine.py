@@ -136,21 +136,14 @@ def extract_data_using_map(response, css_map):
     if size_match:
         heuristic_size = size_match.group(0).lower().replace(" ", "")
 
-    # =========================================================
-    # TWOJA LOGIKA: Kombinatoryka wariantów (itertools.product)
-    # Zamiast czytać listę w dół, budujemy grupy!
-    # =========================================================
     variants = []
 
-    # Wyciągamy bazowy URL bez parametrów na potrzeby AJAX-a
     clean_url = response.url.split('?')[0].split('#')[0]
 
     var_wrap_sel = css_map.get('variants_wrapper')
 
     all_dimensions_data = []
 
-    # Jeśli AI podało jakiś wrapper wariantów, szukamy w nim selektów.
-    # Jeśli nie, próbujemy domyślnie namierzyć tagi 'select' na stronie.
     select_blocks = response.css(f'{var_wrap_sel} select') if var_wrap_sel else response.css('select')
 
     if select_blocks:
@@ -164,7 +157,6 @@ def extract_data_using_map(response, css_map):
 
             for opt in options:
                 attr_id = opt.attrib.get('value')
-                # Zabezpieczenie przed pustymi opcjami (np. "Wybierz rozmiar")
                 if not attr_id or attr_id.strip() == "":
                     continue
 
@@ -179,16 +171,10 @@ def extract_data_using_map(response, css_map):
             if current_group_list:
                 all_dimensions_data.append(current_group_list)
 
-    # =========================================================
-    # ŁĄCZENIE KOMBINACJI
-    # =========================================================
     if all_dimensions_data:
-        # Tworzy każdy możliwy zestaw, np. (Kolor Czerwony, Rozmiar M)
         for combination in itertools.product(*all_dimensions_data):
-            # Łączymy nazwy dla Pipeline'u, np. "Czerwony x M"
             full_size_label = " x ".join([c['name'] for c in combination])
 
-            # Budujemy pełnego stringa pod AJAX, np. "group[1]=12&group[2]=24"
             query_params = "&".join([f"{c['group']}={c['id']}" for c in combination])
 
             variant_specs = copy.deepcopy(specifications)

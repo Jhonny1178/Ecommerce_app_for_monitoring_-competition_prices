@@ -62,10 +62,11 @@ def ingest_client_data(client: dict):
 
 def run_matching_for_client(client: dict):
     sys.path.insert(0, "/opt/airflow/dags")
+    prefix = client.get("store_prefix") or client["slug"]
     config = {
         "client_table":      f"{client['slug']}_products",
-        "competitor_table":  f"{client['slug']}_competitors",
-        "target_table":      f"{client['slug']}_report",
+        "competitor_table":  f"{prefix}_competitors",
+        "target_table":      f"{prefix}_report",
         "competitor_stores": list(client["spiders_to_run"]),
     }
 
@@ -92,6 +93,7 @@ def update_run_status(client_id: int, status: str, error: str = None):
 
 def build_client_tasks(dag, client: dict):
     slug = client["slug"]
+    prefix = client.get("store_prefix") or slug
 
     # Task 1: załaduj dane klienta
     ingest_task = PythonOperator(
@@ -110,8 +112,8 @@ def build_client_tasks(dag, client: dict):
                 "export PYTHONPATH=$PYTHONPATH:/opt/airflow/dags && "
                 "cd /opt/airflow/dags/ecommerce_price_comparer && "
                 f"scrapy crawl {spider} "
-                f"-a target_table={slug}_competitors "
-                f"-a store_prefix={slug}"
+                f"-a target_table={prefix}_competitors "
+                f"-a store_prefix={prefix}"
             ),
             dag=dag,
         )
