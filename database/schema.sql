@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS clients (
     name                    TEXT NOT NULL,
     slug                    TEXT UNIQUE NOT NULL,
     store_prefix            TEXT UNIQUE NOT NULL,
+    website_url             TEXT,
 
     is_active               BOOLEAN DEFAULT FALSE,
     created_at              TIMESTAMP DEFAULT NOW(),
@@ -77,7 +78,14 @@ CREATE TABLE IF NOT EXISTS onboarding_requests (
     requested_store_slug    TEXT,
 
     company_domain          TEXT,
+    website_url             TEXT,
     competitor_urls         JSONB DEFAULT '[]'::jsonb,
+
+    source_type             TEXT,
+    source_path             TEXT,
+    source_url              TEXT,
+    file_format             TEXT,
+    field_mapping           JSONB NOT NULL DEFAULT '{}'::jsonb,
 
     status                  TEXT NOT NULL DEFAULT 'pending_admin',
 
@@ -113,7 +121,7 @@ CREATE TABLE IF NOT EXISTS onboarding_sources (
 
     uploaded_at      TIMESTAMP DEFAULT NOW(),
 
-    CHECK (source_kind IN ('file', 'url', 'api'))
+    CHECK (source_kind IN ('local', 'url'))
 );
 
 -- ============================================================
@@ -400,6 +408,7 @@ INSERT INTO clients (
     name,
     slug,
     store_prefix,
+    website_url,
     is_active,
     source_type,
     source_path,
@@ -412,8 +421,9 @@ VALUES (
     'Sklep Testowy',
     'sklep_testowy',
     'sklep_testowy',
+    'https://sklep-testowy.pl',
     TRUE,
-    'file',
+    'local',
     '/opt/airflow/dags/data/moje_produkty.csv',
     NULL,
     'csv',
@@ -467,7 +477,13 @@ INSERT INTO onboarding_requests (
     requested_store_name,
     requested_store_slug,
     company_domain,
+    website_url,
     competitor_urls,
+    source_type,
+    source_path,
+    source_url,
+    file_format,
+    field_mapping,
     status,
     approved_by,
     approved_at
@@ -478,35 +494,31 @@ VALUES (
     'Sklep Testowy',
     'sklep_testowy',
     'sklep-testowy.pl',
+    'https://sklep-testowy.pl',
     '["https://example-competitor.pl"]'::jsonb,
-    'approved',
-    (SELECT id FROM users WHERE username = 'admin'),
-    NOW()
-)
-ON CONFLICT (user_id, requested_store_name) DO NOTHING;
-
-INSERT INTO onboarding_sources (
-    request_id,
-    source_kind,
-    source_path,
-    source_url,
-    file_format,
-    original_name,
-    mime_type
-)
-VALUES (
-    (
-        SELECT id
-        FROM onboarding_requests
-        WHERE requested_store_slug = 'sklep_testowy'
-        LIMIT 1
-    ),
-    'file',
+    'local',
     '/opt/airflow/dags/data/moje_produkty.csv',
     NULL,
     'csv',
-    'moje_produkty.csv',
-    'text/csv'
+    '{
+        "SKU": "sku",
+        "URL": "url",
+        "CENA": "price_normal",
+        "OPIS": "description",
+        "KOLOR": "color",
+        "MARKA": "manufacturer",
+        "NAZWA": "name",
+        "SKLEP": "store",
+        "ROZMIAR": "size",
+        "ZDJECIE": "image",
+        "KATEGORIA": "category",
+        "CENA_PROMO": "price_special",
+        "DOSTEPNOSC": "availability",
+        "DATA_POBRANIA": "date_of_download"
+    }'::jsonb,
+    'approved',
+    (SELECT id FROM users WHERE username = 'admin'),
+    NOW()
 )
 ON CONFLICT DO NOTHING;
 

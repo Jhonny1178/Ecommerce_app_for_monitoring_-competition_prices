@@ -13,60 +13,85 @@ def create_client_tables(cur, store_prefix: str):
     cur.execute(sql.SQL("""
         CREATE TABLE IF NOT EXISTS {} (
             id SERIAL PRIMARY KEY,
+
             sku TEXT,
             name TEXT,
+            size VARCHAR(50),
+            color VARCHAR(50),
+            manufacturer VARCHAR(50),
+            category VARCHAR(100),
+
+            price_normal FLOAT,
+            price_special FLOAT,
+
+            store VARCHAR(50),
+            availability VARCHAR(50),
+            date_of_download TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
             url TEXT,
-            price_normal NUMERIC,
-            price_special NUMERIC,
-            description TEXT,
-            color TEXT,
-            manufacturer TEXT,
-            size TEXT,
-            category TEXT,
-            availability TEXT,
             image TEXT,
-            store TEXT,
+            description TEXT,
+
             raw_data JSONB DEFAULT '{{}}'::jsonb,
+
             created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW()
+            updated_at TIMESTAMP DEFAULT NOW(),
+
+            UNIQUE (sku, store)
         )
     """).format(products_table))
 
     cur.execute(sql.SQL("""
         CREATE TABLE IF NOT EXISTS {} (
             id SERIAL PRIMARY KEY,
+
             competitor_name TEXT,
             competitor_url TEXT,
+
             sku TEXT,
             name TEXT,
+            size VARCHAR(50),
+            color VARCHAR(50),
+            manufacturer VARCHAR(50),
+            category VARCHAR(100),
+
+            price_normal FLOAT,
+            price_special FLOAT,
+
+            store VARCHAR(50),
+            availability VARCHAR(50),
+            date_of_download TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
             url TEXT,
-            price_normal NUMERIC,
-            price_special NUMERIC,
-            description TEXT,
-            color TEXT,
-            manufacturer TEXT,
-            size TEXT,
-            category TEXT,
-            availability TEXT,
             image TEXT,
-            store TEXT,
+            description TEXT,
+
             raw_data JSONB DEFAULT '{{}}'::jsonb,
+
             created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW()
+            updated_at TIMESTAMP DEFAULT NOW(),
+
+            UNIQUE (sku, store)
         )
     """).format(competitors_table))
 
     cur.execute(sql.SQL("""
         CREATE TABLE IF NOT EXISTS {} (
             id SERIAL PRIMARY KEY,
+
             product_id INTEGER,
             competitor_product_id INTEGER,
+
             product_name TEXT,
             competitor_product_name TEXT,
+
             similarity_score NUMERIC,
             price_difference NUMERIC,
+
             match_status TEXT DEFAULT 'new',
+
             raw_data JSONB DEFAULT '{{}}'::jsonb,
+
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         )
@@ -78,6 +103,9 @@ def provision_client_from_request(
     user_id: int,
     request_id: int,
     store_name: str,
+    requested_store_slug=None,
+    company_domain=None,
+    website_url=None,
     source_type: str = "pending",
     source_path=None,
     source_url=None,
@@ -88,13 +116,14 @@ def provision_client_from_request(
         field_mapping = {}
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        store_prefix = generate_unique_store_prefix(conn, store_name)
+        store_prefix = generate_unique_store_prefix(conn, requested_store_slug or store_name)
 
         cur.execute("""
             INSERT INTO clients (
                 name,
                 slug,
                 store_prefix,
+                website_url,
                 is_active,
                 source_type,
                 source_path,
@@ -104,6 +133,7 @@ def provision_client_from_request(
                 spiders_to_run
             )
             VALUES (
+                %s,
                 %s,
                 %s,
                 %s,
@@ -120,6 +150,7 @@ def provision_client_from_request(
             store_name,
             store_prefix,
             store_prefix,
+            website_url,
             source_type or "pending",
             source_path,
             source_url,
@@ -141,11 +172,13 @@ def provision_client_from_request(
         cur.execute("""
             UPDATE users
             SET client_id = %s,
+                company_domain = COALESCE(%s, company_domain),
                 status = 'onboarding_required',
                 updated_at = NOW()
             WHERE id = %s
         """, (
             client_id,
+            company_domain,
             user_id
         ))
 
@@ -153,7 +186,7 @@ def provision_client_from_request(
             UPDATE onboarding_requests
             SET client_id = %s,
                 requested_store_slug = %s,
-                status = 'approved',
+                status = 'onboarding_required',
                 approved_at = NOW(),
                 updated_at = NOW()
             WHERE id = %s
