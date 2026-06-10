@@ -192,8 +192,17 @@ class DataLoader:
                                                           clean_item.get('size'), clean_item.get('manufacturer'))
         clean_item['size'] = DataCleaner.standardize_size(clean_item.get('size'))
         clean_item['color'] = DataCleaner.standardize_color(clean_item.get('color'))
-        clean_item['sku'] = DataCleaner.sku_normalize(clean_item.get('name'), clean_item.get('color'),
-                                                      clean_item.get('size'), clean_item.get('manufacturer'))
+        original_sku = clean_item.get('sku')
+
+        if original_sku is not None and str(original_sku).strip():
+            clean_item['sku'] = DataCleaner.to_strip(str(original_sku))
+        else:
+            clean_item['sku'] = DataCleaner.sku_normalize(
+                clean_item.get('name'),
+                clean_item.get('color'),
+                clean_item.get('size'),
+                clean_item.get('manufacturer')
+            )
         clean_item['description'] = DataCleaner.clean_description(clean_item.get('description'))
         clean_item['category'] = DataCleaner.clean_category(clean_item.get('category'))
         clean_item['date_of_download'] = datetime.now().isoformat()
