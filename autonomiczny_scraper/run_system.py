@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import List
 import uvicorn
 from dotenv import load_dotenv, find_dotenv
-
+import re
 load_dotenv(find_dotenv())
 
 # --- Importy Twojego silnika AI ---
@@ -34,13 +34,16 @@ SPIDERS_OUTPUT_DIR = os.environ.get("SPIDERS_DIR", "../ecommerce_price_comparer/
 
 class GenerationRequest(BaseModel):
     request_id: int
-    company_name: str  # NOWOŚĆ: Odbieramy nazwę firmy klienta
+    user_id: int
+    client_id: int
+    store_slug: str
     urls: List[str]
 
 
 def pobierz_nazwe_sklepu(url):
     domain = urlparse(url).netloc
     name = domain.replace('www.', '').split('.')[0]
+    name = re.sub(r'[^a-zA-Z0-9]', '_', name).lower()
     return name
 
 
@@ -61,105 +64,428 @@ def przygotuj_srodowisko_klienta(nazwa_firmy: str):
     return katalog_klienta
 
 
-def log_scraper_step(cur, user_id: int, url: str, step: str, status: str, message: str = ""):
+def log_scraper_step(cur, user_id: int, client_id: int, request_id: int, url: str | None, step: str, status: str, message: str = ""):
     try:
-        cur.execute(
-            "INSERT INTO scraper_logs (user_id, url, step, status, message) VALUES (%s, %s, %s, %s, %s)",
-            (user_id, url, step, status, message)
-        )
+        cur.execute("""
+            INSERT INTO scraper_logs (
+                user_id,
+                client_id,
+                request_id,
+                url,
+                step,
+                status,
+                message
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (
+            user_id,
+            client_id,
+            request_id,
+            url,
+            step,
+            status,
+            message
+        ))
     except Exception as e:
         print(f"[!] Błąd zapisu logu: {e}")
 
-def uruchom_autonomiczny_potok(cur, request_id: int, url_sklepu: str, nazwa_firmy: str, docelowy_limit_scrapowania=None):
+
+def register_generated_spider(
+    cur,
+    client_id: int,
+    request_id: int,
+    store_slug: str,
+    competitor_url: str,
+    competitor_name: str,
+    spider_name: str,
+    spider_module: str,
+    spider_path: str
+):
+    output_table = f"{store_slug}_competitors"
+
+    cur.execute("""
+        INSERT INTO scraper_registry (
+            client_id,
+            request_id,
+            store_slug,
+            competitor_url,
+            competitor_name,
+            spider_name,
+            spider_module,
+            spider_path,
+            output_table,
+            status
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'generated')
+        ON CONFLICT (client_id, spider_name)
+        DO UPDATE SET
+            request_id = EXCLUDED.request_id,
+            store_slug = EXCLUDED.store_slug,
+            competitor_url = EXCLUDED.competitor_url,
+            competitor_name = EXCLUDED.competitor_name,
+            spider_module = EXCLUDED.spider_module,
+            spider_path = EXCLUDED.spider_path,
+            output_table = EXCLUDED.output_table,
+            status = 'generated',
+            last_error = NULL,
+            generated_at = NOW()
+    """, (
+        client_id,
+        request_id,
+        store_slug,
+        competitor_url,
+        competitor_name,
+        spider_name,
+        spider_module,
+        spider_path,
+        output_table
+    ))
+
+
+def mark_onboarding_status(cur, request_id: int, status: str):
+    cur.execute("""
+        UPDATE onboarding_requests
+        SET status = %s,
+            updated_at = NOW()
+        WHERE id = %s
+    """, (status, request_id))
+
+def uruchom_autonomiczny_potok(
+    cur,
+    request_id: int,
+    user_id: int,
+    client_id: int,
+    store_slug: str,
+    url_sklepu: str,
+    docelowy_limit_scrapowania=None
+):
     nazwa_sklepu = pobierz_nazwe_sklepu(url_sklepu)
-    print(f"\nURUCHAMIAM AI DLA SKLEPU: {nazwa_sklepu.upper()} (Klient: {nazwa_firmy})")
-    log_scraper_step(cur, request_id, url_sklepu, "Sitemap Discovery", "info", "Rozpoczynam wyszukiwanie sitemapy")
+
+    # To jest nazwa spidera, którą później wpiszemy do scraper_registry.
+    # Musi być taka sama jak name = "..." wewnątrz wygenerowanego spidera.
+    spider_name = f"{nazwa_sklepu}_spider"
+
+    print(f"\nURUCHAMIAM AI DLA SKLEPU: {nazwa_sklepu.upper()} (Klient: {store_slug})")
+
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "Sitemap Discovery",
+        "info",
+        "Rozpoczynam wyszukiwanie sitemapy"
+    )
 
     # KROK 0-2: Sitemapy i linki
     znalezione_sitemapy = find_sitemap(url_sklepu)
+
     if not znalezione_sitemapy:
         print(f"[!] Błąd: Nie znaleziono sitemapy dla {url_sklepu}.")
-        log_scraper_step(cur, request_id, url_sklepu, "Sitemap Discovery", "error", "Nie znaleziono sitemapy")
+
+        log_scraper_step(
+            cur,
+            user_id,
+            client_id,
+            request_id,
+            url_sklepu,
+            "Sitemap Discovery",
+            "error",
+            "Nie znaleziono sitemapy"
+        )
+
         return False
-    
-    log_scraper_step(cur, request_id, url_sklepu, "Sitemap Discovery", "success", "Sitemapa znaleziona")
-    log_scraper_step(cur, request_id, url_sklepu, "Product Links", "info", "Pobieranie linków produktów")
+
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "Sitemap Discovery",
+        "success",
+        "Sitemapa znaleziona"
+    )
+
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "Product Links",
+        "info",
+        "Pobieranie linków produktów"
+    )
 
     czyste_linki = get_product_links(znalezione_sitemapy)
+
     if not czyste_linki:
         print(f"[!] Błąd: Brak linków dla {url_sklepu}.")
-        log_scraper_step(cur, request_id, url_sklepu, "Product Links", "error", "Brak linków w sitemapie")
+
+        log_scraper_step(
+            cur,
+            user_id,
+            client_id,
+            request_id,
+            url_sklepu,
+            "Product Links",
+            "error",
+            "Brak linków w sitemapie"
+        )
+
         return False
-        
-    log_scraper_step(cur, request_id, url_sklepu, "Product Links", "success", f"Pobrano {len(czyste_linki)} linków")
 
-    linki_do_pracy = list(czyste_linki)[:docelowy_limit_scrapowania] if docelowy_limit_scrapowania else list(
-        czyste_linki)
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "Product Links",
+        "success",
+        f"Pobrano {len(czyste_linki)} linków"
+    )
 
-    # Tymczasowe pliki robocze AI (mogą zostać w data_output)
+    linki_do_pracy = (
+        list(czyste_linki)[:docelowy_limit_scrapowania]
+        if docelowy_limit_scrapowania
+        else list(czyste_linki)
+    )
+
+    # Tymczasowe pliki robocze AI
     os.makedirs("data_output", exist_ok=True)
+
     probki_dla_llm = wybierz_pewne_probki(set(linki_do_pracy), ilosc=3)
     plik_datasetu = "data_output/dataset_dla_llm.txt"
-    log_scraper_step(cur, request_id, url_sklepu, "LLM Dataset", "info", "Generowanie zestawu danych HTML dla LLM")
+
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "LLM Dataset",
+        "info",
+        "Generowanie zestawu danych HTML dla LLM"
+    )
+
     build_llm_dataset(probki_dla_llm)
-    log_scraper_step(cur, request_id, url_sklepu, "LLM Dataset", "success", "Wygenerowano próbki dla LLM")
+
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "LLM Dataset",
+        "success",
+        "Wygenerowano próbki dla LLM"
+    )
 
     # Generowanie Mapy
     print("[AI] Generowanie mapy CSS...")
-    log_scraper_step(cur, request_id, url_sklepu, "CSS Mapping", "info", "Uruchomiono model LLM do mapowania CSS")
-    generate_scraper_from_html(plik_datasetu, "data_output/selectors_map.json")
-    log_scraper_step(cur, request_id, url_sklepu, "CSS Mapping", "success", "Mapa wygenerowana")
 
-    # KROK 6: Zapis Spidera PROSTO DO FOLDERU KLIENTA
-    katalog_klienta = przygotuj_srodowisko_klienta(nazwa_firmy)
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "CSS Mapping",
+        "info",
+        "Uruchomiono model LLM do mapowania CSS"
+    )
+
+    generate_scraper_from_html(
+        plik_datasetu,
+        "data_output/selectors_map.json"
+    )
+
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "CSS Mapping",
+        "success",
+        "Mapa wygenerowana"
+    )
+
+    # KROK 6: Zapis spidera do folderu klienta po store_slug
+    katalog_klienta = przygotuj_srodowisko_klienta(store_slug)
     plik_spidera = os.path.join(katalog_klienta, f"{nazwa_sklepu}_spider.py")
 
-    # Przekazujemy czyste_linki, aby Twój generator wpisał je jako string w pliku .py
-    log_scraper_step(cur, request_id, url_sklepu, "Spider Builder", "info", "Tworzenie pliku pająka Scrapy")
-    generate_spider_file("data_output/selectors_map.json", plik_spidera, nazwa_sklepu, links=czyste_linki)
-    log_scraper_step(cur, request_id, url_sklepu, "Spider Builder", "success", f"Zapisano w {plik_spidera}")
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "Spider Builder",
+        "info",
+        "Tworzenie pliku pająka Scrapy"
+    )
+
+    generate_spider_file(
+        "data_output/selectors_map.json",
+        plik_spidera,
+        nazwa_sklepu,
+        links=czyste_linki
+    )
+
+    log_scraper_step(
+        cur,
+        user_id,
+        client_id,
+        request_id,
+        url_sklepu,
+        "Spider Builder",
+        "success",
+        f"Zapisano w {plik_spidera}"
+    )
+
+    # Rejestracja wygenerowanego spidera w scraper_registry.
+    # Dopiero admin approve wpisze go do clients.spiders_to_run.
+    register_generated_spider(
+        cur=cur,
+        client_id=client_id,
+        request_id=request_id,
+        store_slug=store_slug,
+        competitor_url=url_sklepu,
+        competitor_name=nazwa_sklepu,
+        spider_name=spider_name,
+        spider_module=f"{store_slug}.{spider_name}",
+        spider_path=plik_spidera
+    )
+
     print(f"-> Sukces! Pająk zapisany bezpośrednio na produkcję: {plik_spidera}")
+    print(f"-> Zarejestrowano scraper w scraper_registry: {spider_name}")
 
     return True
 
 
-def procesuj_wniosek_w_tle(request_id: int, company_name: str, urls: List[str]):
-    print(f"\n[WORKER] Rozpoczynam wniosek #{request_id} dla firmy: {company_name}")
+def procesuj_wniosek_w_tle(request_id: int, user_id: int, client_id: int, store_slug: str, urls: List[str]):
+    print(f"\n[WORKER] Rozpoczynam wniosek #{request_id} dla klienta: {store_slug}")
     conn = None
+    cur = None
 
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         conn.autocommit = True
         cur = conn.cursor()
 
-        cur.execute("UPDATE users SET status = 'analyzing' WHERE id = %s", (request_id,))
+        mark_onboarding_status(cur, request_id, "scraper_generating")
+
+        log_scraper_step(
+            cur,
+            user_id,
+            client_id,
+            request_id,
+            None,
+            "AI Generator",
+            "started",
+            "Rozpoczęto generowanie scraperów"
+        )
+
+        success_count = 0
+        error_count = 0
 
         for url in urls:
             try:
-                uruchom_autonomiczny_potok(cur, request_id, url, company_name, docelowy_limit_scrapowania=10)
+                ok = uruchom_autonomiczny_potok(
+                    cur,
+                    request_id,
+                    user_id,
+                    client_id,
+                    store_slug,
+                    url,
+                    docelowy_limit_scrapowania=10
+                )
+
+                if ok:
+                    success_count += 1
+                else:
+                    error_count += 1
+
             except Exception as e:
                 print(f"[!] Błąd krytyczny dla {url}: {e}")
-                log_scraper_step(cur, request_id, url, "Pipeline Error", "error", str(e))
+                log_scraper_step(
+                    cur,
+                    user_id,
+                    client_id,
+                    request_id,
+                    url,
+                    "Pipeline Error",
+                    "error",
+                    str(e)
+                )
+                error_count += 1
 
-        cur.execute("UPDATE users SET status = 'completed' WHERE id = %s", (request_id,))
-        print(f"\n[WORKER] Koniec potoku. Pliki dla '{company_name}' dostarczone.")
+        final_status = "scraper_review" if success_count > 0 else "scraper_failed"
+        mark_onboarding_status(cur, request_id, final_status)
+
+        log_scraper_step(
+            cur,
+            user_id,
+            client_id,
+            request_id,
+            None,
+            "AI Generator",
+            final_status,
+            f"Zakończono. Sukcesy: {success_count}, błędy: {error_count}"
+        )
+
+        print(f"\n[WORKER] Koniec potoku. Pliki dla '{store_slug}' dostarczone.")
 
     except Exception as e:
         print(f"\n[WORKER] Błąd bazy danych: {e}")
-    finally:
+
         if conn:
+            try:
+                cur = conn.cursor()
+                mark_onboarding_status(cur, request_id, "scraper_failed")
+                log_scraper_step(
+                    cur,
+                    user_id,
+                    client_id,
+                    request_id,
+                    None,
+                    "AI Generator",
+                    "failed",
+                    str(e)
+                )
+            except Exception as inner_e:
+                print(f"[WORKER] Nie udało się zapisać błędu: {inner_e}")
+
+
+    finally:
+        if cur:
             cur.close()
+
+        if conn:
             conn.close()
 
 
 @app.post("/api/check")
 def trigger_generation(payload: GenerationRequest, background_tasks: BackgroundTasks):
-    # Przekazujemy company_name do workera
-    background_tasks.add_task(procesuj_wniosek_w_tle, payload.request_id, payload.company_name, payload.urls)
+    background_tasks.add_task(
+        procesuj_wniosek_w_tle,
+        payload.request_id,
+        payload.user_id,
+        payload.client_id,
+        payload.store_slug,
+        payload.urls
+    )
 
     return {
         "ok": True,
-        "message": f"Wniosek #{payload.request_id} przyjęty. Proces AI wystartował w tle."
+        "message": f"Wniosek #{payload.request_id} przyjęty. Proces AI wystartował w tle.",
+        "request_id": payload.request_id,
+        "client_id": payload.client_id,
+        "store_slug": payload.store_slug
     }
 
 
