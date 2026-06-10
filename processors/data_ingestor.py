@@ -113,7 +113,7 @@ class DataLoader:
         query = f"""
             CREATE TABLE IF NOT EXISTS {self.table_name} (
             id SERIAL PRIMARY KEY,
-            sku TEXT UNIQUE,
+            sku TEXT,
             name TEXT,
             size VARCHAR(50),
             color VARCHAR(50),
