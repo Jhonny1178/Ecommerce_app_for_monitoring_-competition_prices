@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'login_screen.dart';
 import 'admin_user_details_screen.dart';
 import '../../../../main.dart';
+import 'admin_scraper_logs_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -40,10 +41,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   bool _isLoadingRegRequests = true;
   List<dynamic> _regRequests = [];
 
+  bool _isLoadingScrapers = true;
+  List<dynamic> _scrapers = [];
+
   @override
   void initState() {
     super.initState();
     _fetchPendingUsers();
+    _fetchScrapers();
   }
 
   @override
@@ -105,6 +110,21 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       debugPrint("Error fetching stores: $e");
     } finally {
       setState(() => _isLoadingStores = false);
+    }
+  }
+
+  Future<void> _fetchScrapers() async {
+    setState(() => _isLoadingScrapers = true);
+    try {
+      final response = await ApiClient.get(Uri.parse("/api/admin/scrapers?status=approved"));
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['ok'] == true) {
+        setState(() => _scrapers = data['data'] ?? []);
+      }
+    } catch (e) {
+      debugPrint("Error fetching scrapers: $e");
+    } finally {
+      setState(() => _isLoadingScrapers = false);
     }
   }
 
@@ -475,7 +495,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     ] else if (_selectedTabIndex == 1) ...[
                       _buildErrorLogsTab(colorScheme),
                     ] else if (_selectedTabIndex == 2) ...[
-                      const Center(child: Text('Moduł Scraperów (W budowie)')),
+                      _buildScrapersTab(colorScheme),
                     ] else if (_selectedTabIndex == 3) ...[
                       _buildSupportedStoresTab(colorScheme),
                     ]
@@ -1282,6 +1302,113 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ),
         );
       }
+    );
+  }
+
+  Widget _buildScrapersTab(ColorScheme colorScheme) {
+    if (_isLoadingScrapers) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_scrapers.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32.0),
+          child: Text('Brak zatwierdzonych scraperów.', style: TextStyle(fontSize: 16)),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Cykliczne Scrapery',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _fetchScrapers,
+              tooltip: 'Odśwież',
+            )
+          ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colorScheme.surfaceContainerHighest),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowColor: WidgetStateProperty.all(colorScheme.surfaceContainerHighest.withOpacity(0.5)),
+              columns: const [
+                DataColumn(label: Text('ID')),
+                DataColumn(label: Text('Nazwa (Spider)')),
+                DataColumn(label: Text('Klient')),
+                DataColumn(label: Text('Docelowy Sklep')),
+                DataColumn(label: Text('Ostatni Status')),
+                DataColumn(label: Text('Ostatnie Uruchomienie')),
+                DataColumn(label: Text('Akcje')),
+              ],
+              rows: _scrapers.map((s) {
+                final status = s['last_run_status'] ?? 'Brak uruchomień';
+                Color statusColor = Colors.grey;
+                if (status == 'success') statusColor = Colors.green;
+                else if (status == 'failed') statusColor = Colors.red;
+                else if (status == 'running') statusColor = Colors.blue;
+
+                final lastRunTime = s['last_run_time'] != null 
+                    ? DateTime.parse(s['last_run_time']).toLocal().toString().substring(0, 16)
+                    : '-';
+
+                return DataRow(cells: [
+                  DataCell(Text(s['id'].toString())),
+                  DataCell(Text(s['spider_name'] ?? '-')),
+                  DataCell(Text(s['client_name'] ?? '-')),
+                  DataCell(Text(s['competitor_name'] ?? s['competitor_url'] ?? '-')),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        status,
+                        style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                  DataCell(Text(lastRunTime)),
+                  DataCell(
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => AdminScraperLogsScreen(
+                            scraperId: s['id'],
+                            spiderName: s['spider_name'],
+                          ),
+                        ));
+                      },
+                      icon: const Icon(Icons.history, size: 16),
+                      label: const Text('Logi'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                    ),
+                  ),
+                ]);
+              }).toList(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

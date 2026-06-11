@@ -353,7 +353,7 @@ def api_register():
                 competitor_urls,
                 status
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, 'pending_admin')
+            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, 'onboarding_required')
             RETURNING id
         """, (
             email,
@@ -376,7 +376,7 @@ def api_register():
                 competitor_urls,
                 status
             )
-            VALUES (%s, %s, %s, %s, %s::jsonb, 'pending_admin')
+            VALUES (%s, %s, %s, %s, %s::jsonb, 'onboarding_required')
             RETURNING id
         """, (
             user_id,
@@ -406,9 +406,9 @@ def api_register():
 
         return jsonify({
             "ok": True,
-            "message": "Registration successful. Awaiting admin approval.",
+            "message": "Registration successful. Please complete onboarding.",
             "request_id": request_id,
-            "status": "pending_admin"
+            "status": "onboarding_required"
         })
 
     except errors.UniqueViolation:
@@ -462,6 +462,7 @@ def api_me():
                 u.is_admin,
                 u.company_domain,
                 u.competitor_urls,
+                u.subscription_plan,
 
                 c.id AS client_id,
                 c.name AS client_name,
@@ -666,10 +667,7 @@ def _save_onboarding_submission():
             WHERE user_id = %s
               AND status IN (
                     'onboarding_required',
-                    'onboarding_submitted',
-                    'configured',
-                    'approved',
-                    'active'
+                    'onboarding_submitted'
               )
             ORDER BY created_at DESC
             LIMIT 1
@@ -688,11 +686,7 @@ def _save_onboarding_submission():
         client_id = onboarding_request["client_id"]
 
         if not client_id:
-            conn.rollback()
-            return jsonify({
-                "ok": False,
-                "error": "Client has not been created yet. Admin approval is required first."
-            }), 403
+            pass # Client will be created upon admin approval
 
         if not store_name:
             store_name = onboarding_request["requested_store_name"]
@@ -763,7 +757,7 @@ def _save_onboarding_submission():
                 source_url = %s,
                 file_format = %s,
                 field_mapping = %s::jsonb,
-                status = 'configured',
+                status = 'awaiting_payment',
                 updated_at = NOW()
             WHERE id = %s
         """, (
@@ -781,7 +775,7 @@ def _save_onboarding_submission():
 
         cur.execute("""
             UPDATE users
-            SET status = 'active',
+            SET status = 'awaiting_payment',
                 company_domain = COALESCE(%s, company_domain),
                 competitor_urls = %s::jsonb,
                 updated_at = NOW()
@@ -792,40 +786,17 @@ def _save_onboarding_submission():
             user_id
         ))
 
-        cur.execute("""
-            UPDATE clients
-            SET name = %s,
-                website_url = COALESCE(%s, website_url),
-                source_type = %s,
-                source_path = %s,
-                source_url = %s,
-                file_format = %s,
-                field_mapping = %s::jsonb,
-                is_active = TRUE,
-                updated_at = NOW()
-            WHERE id = %s
-        """, (
-            store_name,
-            website_url,
-            source_type,
-            source_path,
-            source_url,
-            file_format,
-            json.dumps(field_mapping),
-            client_id
-        ))
-
         conn.commit()
 
-        session["status"] = "active"
+        session["status"] = "awaiting_payment"
 
         return jsonify({
             "ok": True,
-            "message": "Profile configuration saved successfully.",
+            "message": "Onboarding completed. Awaiting package selection.",
             "request_id": request_id,
             "client_id": client_id,
-            "status": "active",
-            "request_status": "configured",
+            "status": "awaiting_payment",
+            "request_status": "awaiting_payment",
             "source_type": source_type,
             "source_path": source_path,
             "source_url": source_url,
@@ -849,6 +820,50 @@ def _save_onboarding_submission():
 @auth_bp.route("/api/onboarding/submit", methods=["POST"])
 def api_onboarding_submit():
     return _save_onboarding_submission()
+
+@auth_bp.route("/api/subscription/buy", methods=["POST"])
+def api_subscription_buy():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    data = request.get_json() or {}
+    package = data.get("package", "Podstawowy")
+
+    conn = get_db_transaction()
+    cur = None
+
+    try:
+        cur = conn.cursor()
+        
+        cur.execute("""
+            UPDATE users 
+            SET subscription_plan = %s, status = 'pending_admin' 
+            WHERE id = %s
+        """, (package, user_id))
+
+        cur.execute("""
+            UPDATE onboarding_requests 
+            SET status = 'pending_admin' 
+            WHERE user_id = %s AND status = 'awaiting_payment'
+        """, (user_id,))
+
+        conn.commit()
+        session["status"] = "pending_admin"
+
+        return jsonify({
+            "ok": True,
+            "message": "Subscription plan selected successfully.",
+            "status": "pending_admin"
+        })
+    except Exception as e:
+        traceback.print_exc()
+        conn.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        if cur:
+            cur.close()
+        conn.close()
 
 
 @auth_bp.route("/api/upload_onboarding_file", methods=["POST"])
@@ -1092,7 +1107,7 @@ def admin_approve_user():
             UPDATE onboarding_requests
             SET approved_by = %s,
                 approved_at = NOW(),
-                status = 'onboarding_required',
+                status = 'active',
                 updated_at = NOW()
             WHERE id = %s
         """, (
@@ -1102,7 +1117,7 @@ def admin_approve_user():
 
         cur.execute("""
             UPDATE users
-            SET status = 'onboarding_required',
+            SET status = 'active',
                 updated_at = NOW()
             WHERE id = %s
         """, (
@@ -1118,7 +1133,7 @@ def admin_approve_user():
             "store_prefix": result.get("store_prefix"),
             "slug": result.get("slug"),
             "spiders_to_run": spider_names,
-            "status": "onboarding_required"
+            "status": "active"
         })
 
     except Exception as e:
@@ -1665,6 +1680,7 @@ def list_scrapers():
 
     client_id = request.args.get("client_id", type=int)
     request_id = request.args.get("request_id", type=int)
+    status_filter = request.args.get("status")
 
     where_clauses = ["1=1"]
     params = []
@@ -1676,6 +1692,10 @@ def list_scrapers():
     if request_id:
         where_clauses.append("sr.request_id = %s")
         params.append(request_id)
+        
+    if status_filter:
+        where_clauses.append("sr.status = %s")
+        params.append(status_filter)
 
     where_sql = " AND ".join(where_clauses)
 
@@ -1700,7 +1720,19 @@ def list_scrapers():
                 sr.status,
                 sr.last_error,
                 sr.generated_at,
-                sr.approved_at
+                sr.approved_at,
+                (
+                    SELECT status 
+                    FROM pipeline_task_runs ptr 
+                    WHERE ptr.client_id = sr.client_id AND ptr.task_id = sr.spider_name 
+                    ORDER BY ptr.started_at DESC LIMIT 1
+                ) as last_run_status,
+                (
+                    SELECT started_at 
+                    FROM pipeline_task_runs ptr 
+                    WHERE ptr.client_id = sr.client_id AND ptr.task_id = sr.spider_name 
+                    ORDER BY ptr.started_at DESC LIMIT 1
+                ) as last_run_time
             FROM scraper_registry sr
             LEFT JOIN clients c ON c.id = sr.client_id
             WHERE {where_sql}
@@ -1723,6 +1755,52 @@ def list_scrapers():
             "ok": False,
             "error": str(e)
         }), 500
+
+
+@auth_bp.route("/api/admin/scrapers/<int:scraper_id>/runs", methods=["GET"])
+def scraper_runs(scraper_id):
+    if not session.get("is_admin"):
+        return jsonify({"ok": False, "error": "Unauthorized"}), 403
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT client_id, spider_name 
+            FROM scraper_registry 
+            WHERE id = %s
+        """, (scraper_id,))
+        scraper = cur.fetchone()
+
+        if not scraper or not scraper['client_id']:
+            cur.close()
+            conn.close()
+            return jsonify({"ok": False, "error": "Scraper not found or not assigned to client"}), 404
+
+        cur.execute("""
+            SELECT 
+                id, 
+                status, 
+                started_at, 
+                finished_at, 
+                log_excerpt, 
+                error_msg
+            FROM pipeline_task_runs
+            WHERE client_id = %s AND task_id = %s
+            ORDER BY started_at DESC
+            LIMIT 50
+        """, (scraper['client_id'], scraper['spider_name']))
+
+        runs = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return jsonify({"ok": True, "runs": runs})
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ============================================================

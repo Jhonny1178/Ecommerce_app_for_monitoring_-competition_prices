@@ -194,12 +194,7 @@ def register_generated_spider(
 
 
 def mark_onboarding_status(cur, request_id: int, status: str):
-    cur.execute("""
-        UPDATE onboarding_requests
-        SET status = %s,
-            updated_at = NOW()
-        WHERE id = %s
-    """, (status, request_id))
+    pass # Disabled so it doesn't interfere with the user's onboarding flow (onboarding_required -> awaiting_payment -> pending_admin)
 
 def uruchom_autonomiczny_potok(
     cur,

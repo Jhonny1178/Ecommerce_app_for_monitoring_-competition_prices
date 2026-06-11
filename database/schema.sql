@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin            BOOLEAN DEFAULT FALSE,
     client_id           INTEGER REFERENCES clients(id) ON DELETE SET NULL,
 
-    status              TEXT DEFAULT 'pending_admin',
+    status              TEXT DEFAULT 'pending_admin',\n    subscription_plan   TEXT DEFAULT 'Podstawowy',
 
     first_name          TEXT,
     last_name           TEXT,
@@ -432,6 +432,18 @@ VALUES (
         'pod_pierzyna'
     ]::TEXT[]
 )
+ON CONFLICT (slug) DO UPDATE SET
+    name = EXCLUDED.name,
+    store_prefix = EXCLUDED.store_prefix,
+    website_url = EXCLUDED.website_url,
+    is_active = EXCLUDED.is_active,
+    source_type = EXCLUDED.source_type,
+    source_path = EXCLUDED.source_path,
+    source_url = EXCLUDED.source_url,
+    file_format = EXCLUDED.file_format,
+    field_mapping = EXCLUDED.field_mapping,
+    spiders_to_run = EXCLUDED.spiders_to_run,
+    updated_at = NOW();
 
 INSERT INTO users (
     username,
@@ -469,18 +481,6 @@ ON CONFLICT (username) DO UPDATE SET
     email = EXCLUDED.email,
     company_domain = EXCLUDED.company_domain,
     competitor_urls = EXCLUDED.competitor_urls,
-    updated_at = NOW();
-ON CONFLICT (slug) DO UPDATE SET
-    name = EXCLUDED.name,
-    store_prefix = EXCLUDED.store_prefix,
-    website_url = EXCLUDED.website_url,
-    is_active = EXCLUDED.is_active,
-    source_type = EXCLUDED.source_type,
-    source_path = EXCLUDED.source_path,
-    source_url = EXCLUDED.source_url,
-    file_format = EXCLUDED.file_format,
-    field_mapping = EXCLUDED.field_mapping,
-    spiders_to_run = EXCLUDED.spiders_to_run,
     updated_at = NOW();
 
 INSERT INTO scraper_registry (

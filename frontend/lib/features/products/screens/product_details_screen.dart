@@ -25,6 +25,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   double? _recommendedPrice;
   String? _recommendationReason;
 
+  String _subscriptionPlan = 'Podstawowy';
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +39,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     }
 
     try {
+      final meResponse = await ApiClient.get(Uri.parse('/api/me'));
+      if (meResponse.statusCode == 200) {
+        final meData = jsonDecode(meResponse.body);
+        if (meData['ok'] == true && meData['user'] != null) {
+          _subscriptionPlan = meData['user']['subscription_plan'] ?? 'Podstawowy';
+        }
+      }
+
       final url = Uri.parse("/api/products/${widget.productId}");
 
       final response = await ApiClient.get(
@@ -365,6 +375,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   Widget _buildRecommendationSection(ColorScheme colorScheme) {
+    final hasPremium = _subscriptionPlan == 'Premium';
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -392,70 +404,93 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          if (_recommendedPrice != null) ...[
+          if (!hasPremium) ...[
+            Icon(Icons.lock, size: 48, color: colorScheme.onSecondaryContainer.withOpacity(0.5)),
+            const SizedBox(height: 16),
             Text(
-              "Sugerowana cena:",
+              "Funkcja dostępna w pakiecie Premium.",
+              textAlign: TextAlign.center,
               style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
                 color: colorScheme.onSecondaryContainer.withOpacity(0.8),
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              "${_recommendedPrice!.toStringAsFixed(2)} zł",
-              style: TextStyle(
-                fontSize: 42,
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSecondaryContainer,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              _recommendationReason ?? "",
+              "Nasz model AI wyliczy dla Ciebie optymalną cenę. Zmień pakiet, aby odblokować.",
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
-                height: 1.5,
-                color: colorScheme.onSecondaryContainer,
+                color: colorScheme.onSecondaryContainer.withOpacity(0.7),
               ),
             ),
-            const SizedBox(height: 24),
           ] else ...[
-            Text(
-              "Nasz model AI może wyliczyć optymalną cenę dla tego produktu, analizując rynek.",
-              style: TextStyle(
-                fontSize: 14,
-                height: 1.5,
-                color: colorScheme.onSecondaryContainer.withOpacity(0.8),
+            if (_recommendedPrice != null) ...[
+              Text(
+                "Sugerowana cena:",
+                style: TextStyle(
+                  color: colorScheme.onSecondaryContainer.withOpacity(0.8),
+                ),
               ),
+              const SizedBox(height: 8),
+              Text(
+                "${_recommendedPrice!.toStringAsFixed(2)} zł",
+                style: TextStyle(
+                  fontSize: 42,
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSecondaryContainer,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _recommendationReason ?? "",
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: colorScheme.onSecondaryContainer,
+                ),
+              ),
+              const SizedBox(height: 24),
+            ] else ...[
+              Text(
+                "Nasz model AI może wyliczyć optymalną cenę dla tego produktu, analizując rynek.",
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: colorScheme.onSecondaryContainer.withOpacity(0.8),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+            ElevatedButton(
+              onPressed: _isRecommending ? null : _getRecommendation,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colorScheme.onSecondaryContainer,
+                foregroundColor: colorScheme.secondaryContainer,
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: _isRecommending
+                  ? SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: colorScheme.secondaryContainer,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      "Generuj rekomendację",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
             ),
-            const SizedBox(height: 24),
           ],
-          ElevatedButton(
-            onPressed: _isRecommending ? null : _getRecommendation,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: colorScheme.onSecondaryContainer,
-              foregroundColor: colorScheme.secondaryContainer,
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: _isRecommending
-                ? SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      color: colorScheme.secondaryContainer,
-                      strokeWidth: 2,
-                    ),
-                  )
-                : const Text(
-                    "Generuj rekomendację",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-          ),
         ],
       ),
     );

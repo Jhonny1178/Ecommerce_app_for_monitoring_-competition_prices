@@ -146,7 +146,7 @@ def ingest_client_products(client):
     print(f"[INGEST] Finished for client={client['name']}")
 
 
-def run_spider_for_client(client, spider_name):
+def run_spider_for_client(client, spider_name, pipeline_run_id=None):
     prefix = client.get("store_prefix") or client["slug"]
 
     command = (
@@ -159,6 +159,8 @@ def run_spider_for_client(client, spider_name):
 
     print(f"[SCRAPER] Client={client['name']} spider={spider_name}")
     print(f"[SCRAPER] Command={command}")
+    
+    started_at = datetime.now()
 
     result = subprocess.run(
         command,
@@ -167,6 +169,11 @@ def run_spider_for_client(client, spider_name):
         capture_output=True,
     )
 
+    finished_at = datetime.now()
+    stdout_excerpt = result.stdout[-5000:] if result.stdout else ""
+    stderr_excerpt = result.stderr[-5000:] if result.stderr else ""
+    log_excerpt = f"STDOUT:\\n{stdout_excerpt}\\n\\nSTDERR:\\n{stderr_excerpt}"
+    
     print("[SCRAPER STDOUT]")
     print(result.stdout)
 
@@ -174,11 +181,14 @@ def run_spider_for_client(client, spider_name):
     print(result.stderr)
 
     if result.returncode != 0:
+        error_msg = f"Spider {spider_name} failed with code {result.returncode}"
+        save_task_run(client['id'], pipeline_run_id, spider_name, 'failed', error_msg=error_msg, log_excerpt=log_excerpt, started_at=started_at, finished_at=finished_at)
         raise RuntimeError(
             f"Spider {spider_name} failed for client {client['name']} "
             f"with code {result.returncode}"
         )
 
+    save_task_run(client['id'], pipeline_run_id, spider_name, 'success', log_excerpt=log_excerpt, started_at=started_at, finished_at=finished_at)
     print(f"[SCRAPER] Finished spider={spider_name} client={client['name']}")
 
 
@@ -226,15 +236,22 @@ def run_matching_for_client(client):
         print(f"[MATCH] Generated rows={len(result)} for client={client['name']}")
 
 
-def save_pipeline_run(client_id, status, error_msg=None):
+def save_pipeline_run(client_id, status, error_msg=None, run_id=None):
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
-        cur.execute("""
-            INSERT INTO pipeline_runs (client_id, status, finished_at, error_msg)
-            VALUES (%s, %s, NOW(), %s)
-        """, (client_id, status, error_msg))
+        if run_id:
+            cur.execute("""
+                UPDATE pipeline_runs
+                SET status = %s, finished_at = NOW(), error_msg = %s
+                WHERE id = %s
+            """, (status, error_msg, run_id))
+        else:
+            cur.execute("""
+                INSERT INTO pipeline_runs (client_id, status, finished_at, error_msg)
+                VALUES (%s, %s, NOW(), %s)
+            """, (client_id, status, error_msg))
 
         conn.commit()
         cur.close()
@@ -242,6 +259,38 @@ def save_pipeline_run(client_id, status, error_msg=None):
 
     except Exception as e:
         print(f"[PIPELINE_RUN_LOG] Could not save pipeline run: {e}")
+
+def create_pipeline_run(client_id):
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO pipeline_runs (client_id, status, started_at)
+            VALUES (%s, 'running', NOW()) RETURNING id
+        """, (client_id,))
+        run_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return run_id
+    except Exception as e:
+        print(f"[PIPELINE_RUN_LOG] Could not create pipeline run: {e}")
+        return None
+
+def save_task_run(client_id, pipeline_run_id, task_id, status, error_msg=None, log_excerpt=None, started_at=None, finished_at=None):
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO pipeline_task_runs 
+            (client_id, pipeline_run_id, task_id, status, started_at, finished_at, log_excerpt, error_msg)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (client_id, pipeline_run_id, task_id, status, started_at, finished_at, log_excerpt, error_msg))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"[PIPELINE_TASK_LOG] Could not save task run: {e}")
 
 
 def run_pipeline_for_client(client):
@@ -254,21 +303,27 @@ def run_pipeline_for_client(client):
     print(f"[CLIENT PIPELINE] spiders_to_run={spiders}")
     print("=" * 80)
 
+    run_id = create_pipeline_run(client_id)
+
     try:
+        save_task_run(client_id, run_id, "ingest_client_products", "running", started_at=datetime.now())
         ingest_client_products(client)
+        save_task_run(client_id, run_id, "ingest_client_products", "success", finished_at=datetime.now())
 
         for spider_name in spiders:
-            run_spider_for_client(client, spider_name)
+            run_spider_for_client(client, spider_name, pipeline_run_id=run_id)
 
+        save_task_run(client_id, run_id, "run_matching", "running", started_at=datetime.now())
         run_matching_for_client(client)
+        save_task_run(client_id, run_id, "run_matching", "success", finished_at=datetime.now())
 
-        save_pipeline_run(client_id, "success")
+        save_pipeline_run(client_id, "success", run_id=run_id)
 
         print(f"[CLIENT PIPELINE] SUCCESS client_id={client_id}")
 
     except Exception as e:
         error_msg = str(e)
-        save_pipeline_run(client_id, "failed", error_msg)
+        save_pipeline_run(client_id, "failed", error_msg, run_id=run_id)
         print(f"[CLIENT PIPELINE] FAILED client_id={client_id}: {error_msg}")
         raise
 

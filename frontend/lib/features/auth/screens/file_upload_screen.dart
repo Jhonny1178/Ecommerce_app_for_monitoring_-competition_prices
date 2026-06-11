@@ -299,7 +299,7 @@ class _FileUploadScreenState extends State<FileUploadScreen> {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => const AuthRouter(
-              status: 'active',
+              status: 'awaiting_payment',
               isAdmin: false,
             ),
           ),

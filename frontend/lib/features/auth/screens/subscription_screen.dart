@@ -24,7 +24,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       if (response.statusCode == 200 && data['ok'] == true) {
         if (mounted) {
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const AuthRouter(status: 'active', isAdmin: false)),
+            MaterialPageRoute(builder: (_) => const AuthRouter(status: 'pending_admin', isAdmin: false)),
           );
         }
       } else {
@@ -60,23 +60,23 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           padding: const EdgeInsets.all(32),
           child: Column(
             children: [
-              const Text('Twój wniosek został zaakceptowany!', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+              const Text('Konto wstępnie skonfigurowane!', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               const Text('Wybierz plan, aby rozpocząć korzystanie z e-ROCH. Pierwszy miesiąc jest darmowy.', style: TextStyle(fontSize: 16)),
               const SizedBox(height: 48),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildPackageCard('Podstawowy', '300 zł/m-c', ['Codzienna aktualizacja cen konkurencji'], '300', colorScheme),
+                  _buildPackageCard('Podstawowy', '300 zł/m-c', ['Codzienna aktualizacja cen konkurencji'], 'Podstawowy', colorScheme),
                   const SizedBox(width: 24),
-                  _buildPackageCard('Pro', '400 zł/m-c', ['Codzienna aktualizacja cen konkurencji', 'Historia cen konkurencji'], '400', colorScheme, featured: true),
+                  _buildPackageCard('Pro', '400 zł/m-c', ['Codzienna aktualizacja cen konkurencji', 'Historia cen konkurencji'], 'Pro', colorScheme, featured: true),
                   const SizedBox(width: 24),
-                  _buildPackageCard('Premium', '500 zł/m-c', ['Codzienna aktualizacja cen konkurencji', 'Historia cen konkurencji', 'Inteligentna rekomendacja cen'], '500', colorScheme),
+                  _buildPackageCard('Premium', '500 zł/m-c', ['Codzienna aktualizacja cen konkurencji', 'Historia cen konkurencji', 'Inteligentna rekomendacja cen'], 'Premium', colorScheme),
                 ],
               ),
               const SizedBox(height: 48),
               const Text(
-                'Historia zmian cen konkurencji pobierana jest dopiero od dnia wykupienia pakietu.\nW każdej chwili możesz zmienić pakiet lub z niego zrezygnować.',
+                'Twój wniosek po wyborze pakietu trafi do weryfikacji przez administratora.\nW przyszłości będziesz mógł zmienić pakiet lub z niego zrezygnować.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               )

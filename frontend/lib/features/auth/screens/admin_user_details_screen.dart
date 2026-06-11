@@ -16,6 +16,17 @@ class _AdminUserDetailsScreenState extends State<AdminUserDetailsScreen> {
   Map<String, dynamic>? _user;
   List<dynamic> _logs = [];
 
+  List<dynamic> _parseList(dynamic value) {
+    if (value is List) return value;
+    if (value is String) {
+      try {
+        final parsed = jsonDecode(value);
+        if (parsed is List) return parsed;
+      } catch (_) {}
+    }
+    return [];
+  }
+
   @override
   void initState() {
     super.initState();
@@ -219,7 +230,7 @@ class _AdminUserDetailsScreenState extends State<AdminUserDetailsScreen> {
                 Text('Wskazana konkurencja:', style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12)),
                 const SizedBox(height: 8),
                 if (_user!['competitor_urls'] != null)
-                  ...(_user!['competitor_urls'] as List).map((url) => Padding(
+                  ...(_parseList(_user!['competitor_urls'])).map((url) => Padding(
                     padding: const EdgeInsets.only(bottom: 8.0),
                     child: Text('• $url', style: const TextStyle(fontSize: 14)),
                   )),
