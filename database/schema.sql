@@ -383,31 +383,11 @@ BEFORE UPDATE ON onboarding_requests
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
+
 -- ============================================================
 -- 14. DEV SEED
---     To jest tylko do lokalnego developmentu.
---     Produkcyjnie lepiej przenieść to do database/dev_seed.sql.
+--     Seed lokalny: tylko jeden aktywny klient bez tworzenia userów.
 -- ============================================================
-
-INSERT INTO users (
-    username,
-    password_hash,
-    is_admin,
-    client_id,
-    status,
-    first_name,
-    last_name
-)
-VALUES (
-    'admin',
-    encode(digest('admin123', 'sha256'), 'hex'),
-    TRUE,
-    NULL,
-    'active',
-    'Admin',
-    'System'
-)
-ON CONFLICT (username) DO NOTHING;
 
 INSERT INTO clients (
     name,
@@ -423,34 +403,35 @@ INSERT INTO clients (
     spiders_to_run
 )
 VALUES (
-    'Sklep Testowy',
-    'sklep_testowy',
-    'sklep_testowy',
-    'https://sklep-testowy.pl',
+    'Nasz Klient',
+    'nasz_klient',
+    'nasz_klient',
+    'https://lambfield.com',
     TRUE,
-    'local',
-    '/opt/airflow/dags/data/moje_produkty.csv',
-    NULL,
-    'csv',
+    'url',
+    'https://lambfield.com/data/export/feed10000_10e8959b59a79f3367f2f493.xml',
+    'https://lambfield.com/data/export/feed10000_10e8959b59a79f3367f2f493.xml',
+    'xml',
     '{
-        "SKU": "sku",
-        "URL": "url",
-        "CENA": "price_normal",
-        "OPIS": "description",
-        "KOLOR": "color",
-        "MARKA": "manufacturer",
-        "NAZWA": "name",
-        "SKLEP": "store",
-        "ROZMIAR": "size",
-        "ZDJECIE": "image",
-        "KATEGORIA": "category",
-        "CENA_PROMO": "price_special",
-        "DOSTEPNOSC": "availability",
-        "DATA_POBRANIA": "date_of_download"
+        "title": "name",
+        "price": "price_normal",
+        "link": "url",
+        "id": "sku",
+        "description": "description",
+        "color": "color",
+        "brand": "manufacturer",
+        "size": "size",
+        "product_type": "category",
+        "availability": "availability",
+        "image_link": "image",
+        "sale_price": "price_special"
     }'::jsonb,
-    ARRAY[]::TEXT[]
+    ARRAY[
+        'Calavado',
+        'jmbdesing',
+        'pod_pierzyna'
+    ]::TEXT[]
 )
-ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO users (
     username,
@@ -460,72 +441,47 @@ INSERT INTO users (
     status,
     first_name,
     last_name,
+    email,
     company_domain,
     competitor_urls
 )
 VALUES (
-    'klient1',
+    'nasz_klient',
     encode(digest('klient123', 'sha256'), 'hex'),
     FALSE,
-    (SELECT id FROM clients WHERE slug = 'sklep_testowy'),
+    (SELECT id FROM clients WHERE slug = 'nasz_klient'),
     'active',
+    'Nasz',
     'Klient',
-    'Testowy',
-    'sklep-testowy.pl',
-    '["https://example-competitor.pl"]'::jsonb
+    'nasz_klient@example.com',
+    'lambfield.com',
+    '[
+        "https://www.calvado.com/",
+        "https://jmbdesign.pl/",
+        "https://podpierzyna.com/"
+    ]'::jsonb
 )
-ON CONFLICT (username) DO NOTHING;
-
-INSERT INTO onboarding_requests (
-    user_id,
-    client_id,
-    requested_store_name,
-    requested_store_slug,
-    company_domain,
-    website_url,
-    competitor_urls,
-    source_type,
-    source_path,
-    source_url,
-    file_format,
-    field_mapping,
-    status,
-    approved_by,
-    approved_at
-)
-VALUES (
-    (SELECT id FROM users WHERE username = 'klient1'),
-    (SELECT id FROM clients WHERE slug = 'sklep_testowy'),
-    'Sklep Testowy',
-    'sklep_testowy',
-    'sklep-testowy.pl',
-    'https://sklep-testowy.pl',
-    '["https://example-competitor.pl"]'::jsonb,
-    'local',
-    '/opt/airflow/dags/data/moje_produkty.csv',
-    NULL,
-    'csv',
-    '{
-        "SKU": "sku",
-        "URL": "url",
-        "CENA": "price_normal",
-        "OPIS": "description",
-        "KOLOR": "color",
-        "MARKA": "manufacturer",
-        "NAZWA": "name",
-        "SKLEP": "store",
-        "ROZMIAR": "size",
-        "ZDJECIE": "image",
-        "KATEGORIA": "category",
-        "CENA_PROMO": "price_special",
-        "DOSTEPNOSC": "availability",
-        "DATA_POBRANIA": "date_of_download"
-    }'::jsonb,
-    'approved',
-    (SELECT id FROM users WHERE username = 'admin'),
-    NOW()
-)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (username) DO UPDATE SET
+    client_id = EXCLUDED.client_id,
+    status = EXCLUDED.status,
+    first_name = EXCLUDED.first_name,
+    last_name = EXCLUDED.last_name,
+    email = EXCLUDED.email,
+    company_domain = EXCLUDED.company_domain,
+    competitor_urls = EXCLUDED.competitor_urls,
+    updated_at = NOW();
+ON CONFLICT (slug) DO UPDATE SET
+    name = EXCLUDED.name,
+    store_prefix = EXCLUDED.store_prefix,
+    website_url = EXCLUDED.website_url,
+    is_active = EXCLUDED.is_active,
+    source_type = EXCLUDED.source_type,
+    source_path = EXCLUDED.source_path,
+    source_url = EXCLUDED.source_url,
+    file_format = EXCLUDED.file_format,
+    field_mapping = EXCLUDED.field_mapping,
+    spiders_to_run = EXCLUDED.spiders_to_run,
+    updated_at = NOW();
 
 INSERT INTO scraper_registry (
     client_id,
@@ -541,35 +497,73 @@ INSERT INTO scraper_registry (
     approved_by,
     approved_at
 )
-VALUES (
-    (SELECT id FROM clients WHERE slug = 'sklep_testowy'),
-    (
-        SELECT id
-        FROM onboarding_requests
-        WHERE requested_store_slug = 'sklep_testowy'
-        LIMIT 1
-    ),
-    'sklep_testowy',
-    'https://example-competitor.pl',
-    'Example Competitor',
-    'spider_dummy',
-    'spiders.spider_dummy',
-    'spiders/spider_dummy.py',
-    'sklep_testowy_competitors',
+VALUES
+(
+    (SELECT id FROM clients WHERE slug = 'nasz_klient'),
+    NULL,
+    'nasz_klient',
+    'https://www.calvado.com/',
+    'Calavado',
+    'Calavado',
+    'spiders.Calavado',
+    'spiders/Calavado.py',
+    'nasz_klient_competitors',
     'approved',
-    (SELECT id FROM users WHERE username = 'admin'),
+    NULL,
+    NOW()
+),
+(
+    (SELECT id FROM clients WHERE slug = 'nasz_klient'),
+    NULL,
+    'nasz_klient',
+    'https://jmbdesign.pl/',
+    'JMB Design',
+    'jmbdesing',
+    'spiders.jmbdesing',
+    'spiders/jmbdesing.py',
+    'nasz_klient_competitors',
+    'approved',
+    NULL,
+    NOW()
+),
+(
+    (SELECT id FROM clients WHERE slug = 'nasz_klient'),
+    NULL,
+    'nasz_klient',
+    'https://podpierzyna.com/',
+    'Pod Pierzyną',
+    'pod_pierzyna',
+    'spiders.pod_pierzyna',
+    'spiders/pod_pierzyna.py',
+    'nasz_klient_competitors',
+    'approved',
+    NULL,
     NOW()
 )
-ON CONFLICT (client_id, spider_name) DO NOTHING;
+ON CONFLICT (client_id, spider_name)
+WHERE client_id IS NOT NULL
+DO UPDATE SET
+    store_slug = EXCLUDED.store_slug,
+    competitor_url = EXCLUDED.competitor_url,
+    competitor_name = EXCLUDED.competitor_name,
+    spider_module = EXCLUDED.spider_module,
+    spider_path = EXCLUDED.spider_path,
+    output_table = EXCLUDED.output_table,
+    status = EXCLUDED.status,
+    last_error = NULL,
+    approved_at = NOW();
 
 UPDATE clients c
-SET spiders_to_run = sub.spiders
+SET spiders_to_run = sub.spiders,
+    updated_at = NOW()
 FROM (
     SELECT
         client_id,
         array_agg(spider_name ORDER BY spider_name) AS spiders
     FROM scraper_registry
     WHERE status = 'approved'
+      AND client_id IS NOT NULL
     GROUP BY client_id
 ) sub
-WHERE c.id = sub.client_id;
+WHERE c.id = sub.client_id
+  AND c.slug = 'nasz_klient';
