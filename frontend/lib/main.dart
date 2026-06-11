@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core/theme/theme.dart';
-import 'features/auth/screens/login_screen.dart';
+import 'features/auth/screens/landing_page_screen.dart';
 import 'core/api/api_client.dart';
 
 final ValueNotifier<ThemeMode> globalThemeNotifier = ValueNotifier(ThemeMode.light);
@@ -26,7 +26,7 @@ class MyApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme, 
           
-          home: const LoginScreen(),
+          home: const LandingPageScreen(),
         );
       },
     );

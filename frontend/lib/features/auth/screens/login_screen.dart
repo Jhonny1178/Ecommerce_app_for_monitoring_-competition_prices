@@ -8,7 +8,8 @@ import 'register_screen_two.dart';
 import '../../../core/utils/dialog_utils.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final int initialTabIndex;
+  const LoginScreen({super.key, this.initialTabIndex = 0});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -84,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 2, vsync: this, initialIndex: widget.initialTabIndex);
   }
 
   @override

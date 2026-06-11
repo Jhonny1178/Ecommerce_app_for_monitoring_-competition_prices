@@ -147,7 +147,7 @@ class _AdminUserDetailsScreenState extends State<AdminUserDetailsScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(log['step'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text(log['step']?.toString() ?? 'Nieznany krok', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                         Text(timeStr, style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12)),
                       ],
                     ),
