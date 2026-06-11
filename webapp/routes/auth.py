@@ -1719,8 +1719,8 @@ def list_scrapers():
                 sr.output_table,
                 sr.status,
                 sr.last_error,
-                sr.generated_at,
-                sr.approved_at,
+                sr.generated_at::TEXT,
+                sr.approved_at::TEXT,
                 (
                     SELECT status 
                     FROM pipeline_task_runs ptr 
@@ -1728,7 +1728,7 @@ def list_scrapers():
                     ORDER BY ptr.started_at DESC LIMIT 1
                 ) as last_run_status,
                 (
-                    SELECT started_at 
+                    SELECT started_at::TEXT 
                     FROM pipeline_task_runs ptr 
                     WHERE ptr.client_id = sr.client_id AND ptr.task_id = sr.spider_name 
                     ORDER BY ptr.started_at DESC LIMIT 1
@@ -1782,8 +1782,8 @@ def scraper_runs(scraper_id):
             SELECT 
                 id, 
                 status, 
-                started_at, 
-                finished_at, 
+                started_at::TEXT, 
+                finished_at::TEXT, 
                 log_excerpt, 
                 error_msg
             FROM pipeline_task_runs
@@ -1807,81 +1807,68 @@ def scraper_runs(scraper_id):
 # Subscription
 # ============================================================
 
-@auth_bp.route("/api/subscription/buy", methods=["POST"])
-def subscription_buy():
-    if "user_id" not in session:
-        return jsonify({
-            "ok": False,
-            "error": "Not authenticated"
-        }), 401
+@auth_bp.route("/api/subscription/change", methods=["POST"])
+def api_subscription_change():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     data = request.get_json() or {}
     package = data.get("package")
+    if not package:
+        return jsonify({"ok": False, "error": "Package not provided"}), 400
 
+    conn = get_db_transaction()
     try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
+        cur = conn.cursor()
         cur.execute("""
-            SELECT
-                id,
-                client_id,
-                status
-            FROM users
+            UPDATE users 
+            SET subscription_plan = %s
             WHERE id = %s
-        """, (session["user_id"],))
+        """, (package, user_id))
+        
+        conn.commit()
+        return jsonify({
+            "ok": True,
+            "message": "Subscription plan changed successfully.",
+            "package": package
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
-        user = cur.fetchone()
 
-        if not user:
-            cur.close()
-            conn.close()
-            return jsonify({
-                "ok": False,
-                "error": "User not found"
-            }), 404
+@auth_bp.route("/api/subscription/cancel", methods=["POST"])
+def api_subscription_cancel():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-        if not user["client_id"]:
-            cur.close()
-            conn.close()
-            return jsonify({
-                "ok": False,
-                "error": "Client has not been provisioned yet. Wait for admin approval."
-            }), 400
-
+    conn = get_db_transaction()
+    try:
+        cur = conn.cursor()
         cur.execute("""
-            UPDATE users
-            SET status = 'active',
-                updated_at = NOW()
+            UPDATE users 
+            SET status = 'awaiting_payment'
             WHERE id = %s
-        """, (session["user_id"],))
-
+        """, (user_id,))
+        
         cur.execute("""
-            UPDATE clients
-            SET is_active = TRUE,
-                updated_at = NOW()
-            WHERE id = %s
-        """, (user["client_id"],))
+            UPDATE onboarding_requests 
+            SET status = 'awaiting_payment'
+            WHERE user_id = %s
+        """, (user_id,))
 
         conn.commit()
-        cur.close()
-        conn.close()
-
-        session["status"] = "active"
-        session["client_id"] = user["client_id"]
+        session["status"] = "awaiting_payment"
 
         return jsonify({
             "ok": True,
-            "message": "Subscription activated successfully.",
-            "package": package
+            "message": "Subscription cancelled."
         })
-
     except Exception as e:
         traceback.print_exc()
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 500
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ============================================================

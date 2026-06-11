@@ -8,6 +8,8 @@ import '../../products/screens/products_list_screen.dart';
 import '../../../core/utils/dialog_utils.dart';
 import '../../auth/screens/login_screen.dart';
 import '../../auth/screens/file_upload_screen.dart';
+import '../../auth/screens/subscription_screen.dart';
+import '../../auth/screens/auth_router.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -72,6 +74,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (mounted) {
         setState(() => _isCheckingUserStatus = false);
+      }
+    }
+  }
+
+  Future<void> _cancelSubscription() async {
+    try {
+      final response = await ApiClient.post(Uri.parse('/api/subscription/cancel'));
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['ok'] == true) {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const AuthRouter(status: 'awaiting_payment', isAdmin: false)),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['error'] ?? 'Błąd anulowania'), backgroundColor: Colors.red));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Błąd połączenia: $e'), backgroundColor: Colors.red));
       }
     }
   }
@@ -283,6 +307,62 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           );
                         }),
+
+                      const SizedBox(height: 16),
+                      const Divider(),
+
+                      _dialogSectionTitle('Zarządzanie subskrypcją', colorScheme),
+                      _infoLine('Aktualny pakiet', user['subscription_plan'] ?? 'Brak'),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () async {
+                              Navigator.pop(dialogContext);
+                              final changed = await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => SubscriptionScreen(
+                                    isChangingPlan: true,
+                                    currentPlan: user['subscription_plan']?.toString(),
+                                  ),
+                                ),
+                              );
+                              if (changed == true) {
+                                _fetchStats();
+                                _openProfileOrOnboarding(); // Otwórz z powrotem profil po zmianie
+                              }
+                            },
+                            icon: const Icon(Icons.swap_horiz),
+                            label: const Text('Zmień pakiet'),
+                          ),
+                          const SizedBox(width: 16),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Anuluj subskrypcję'),
+                                  content: const Text('Czy na pewno chcesz anulować subskrypcję? Stracisz natychmiastowy dostęp do systemu.'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Nie')),
+                                    TextButton(
+                                      onPressed: () {
+                                        Navigator.pop(ctx);
+                                        Navigator.pop(dialogContext);
+                                        _cancelSubscription();
+                                      },
+                                      child: const Text('Tak, anuluj', style: TextStyle(color: Colors.red)),
+                                    ),
+                                  ]
+                                )
+                              );
+                            },
+                            icon: const Icon(Icons.cancel, color: Colors.red),
+                            label: const Text('Anuluj subskrypcję', style: TextStyle(color: Colors.red)),
+                            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                          ),
+                        ]
+                      ),
 
                       const SizedBox(height: 24),
 
