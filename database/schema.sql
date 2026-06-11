@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin            BOOLEAN DEFAULT FALSE,
     client_id           INTEGER REFERENCES clients(id) ON DELETE SET NULL,
 
-    status              TEXT DEFAULT 'pending_admin',\n    subscription_plan   TEXT DEFAULT 'Podstawowy',
+    status              TEXT DEFAULT 'pending_admin',
+    subscription_plan   TEXT DEFAULT 'Podstawowy',
 
     first_name          TEXT,
     last_name           TEXT,
