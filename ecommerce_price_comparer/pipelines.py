@@ -55,11 +55,15 @@ class SaveToPostgresSQLPipeline:
         self.batch_size = 100
 
     def open_spider(self, spider):
+        target_table = getattr(spider, 'target_table', None)
         prefix = getattr(spider, 'store_prefix', 'default')
-        self.table_name = f"{prefix}_competitors"
-        self.history_table_name = f"{prefix}_competitors_history"
-        spider.logger.info(
-            f"[PIPELINE] Uruchomiono zrzut do tabeli: {self.table_name} oraz historii: {self.history_table_name}")
+
+        if target_table:
+            self.table_name = target_table
+        else:
+            self.table_name = f"{prefix}_competitors"
+
+        self.history_table_name = f"{self.table_name}_history"
 
         try:
             # Pakujemy tworzenie struktur w jeden try/except
