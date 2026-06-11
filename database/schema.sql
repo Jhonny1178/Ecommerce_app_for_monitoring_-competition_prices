@@ -446,6 +446,28 @@ ON CONFLICT (slug) DO UPDATE SET
     spiders_to_run = EXCLUDED.spiders_to_run,
     updated_at = NOW();
 
+
+INSERT INTO users (
+    username,
+    password_hash,
+    is_admin,
+    client_id,
+    status,
+    first_name,
+    last_name
+)
+VALUES (
+    'admin',
+    encode(digest('admin123', 'sha256'), 'hex'),
+    TRUE,
+    NULL,
+    'active',
+    'Admin',
+    'System'
+)
+ON CONFLICT (username) DO NOTHING;
+
+
 INSERT INTO users (
     username,
     password_hash,

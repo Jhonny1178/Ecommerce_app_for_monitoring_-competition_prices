@@ -213,6 +213,31 @@ def send_email(subject, body, to_email=None):
 # Auth
 # ============================================================
 
+@auth_bp.route("/api/change_password", methods=["POST"])
+def api_change_password():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "error": "Brak autoryzacji"}), 401
+
+    data = request.get_json() or {}
+    new_password = data.get("new_password", "").strip()
+
+    if len(new_password) < 6:
+        return jsonify({"ok": False, "error": "Hasło musi mieć min. 6 znaków"}), 400
+
+    hashed = hash_password(new_password)
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET password_hash = %s, updated_at = NOW() WHERE id = %s", (hashed, user_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"ok": True, "message": "Hasło zostało zmienione"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @auth_bp.route("/api/logout", methods=["POST"])
 def api_logout():
     session.clear()

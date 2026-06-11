@@ -4,8 +4,8 @@ import 'package:tonten/core/api/api_client.dart';
 import 'dart:convert';
 import 'login_screen.dart';
 import 'admin_user_details_screen.dart';
-import '../../../../main.dart';
 import 'admin_scraper_logs_screen.dart';
+import '../../../core/utils/dialog_utils.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -49,6 +49,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     super.initState();
     _fetchPendingUsers();
     _fetchScrapers();
+    _fetchStores();
   }
 
   @override
@@ -169,9 +170,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           }
 
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Wniosek został zatwierdzony. Klient i tabele zostały utworzone.'),
-              backgroundColor: Colors.green,
+            SnackBar(
+              content: const Text('Wniosek został zatwierdzony. Klient i tabele zostały utworzone.'),
+              backgroundColor: Theme.of(context).colorScheme.primary,
             ),
           );
         }
@@ -184,7 +185,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(data['error']?.toString() ?? 'Nie udało się zatwierdzić wniosku.'),
-              backgroundColor: Colors.red,
+              backgroundColor: Theme.of(context).colorScheme.error,
             ),
           );
         }
@@ -196,7 +197,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Błąd zatwierdzania wniosku: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
@@ -230,9 +231,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           }
 
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Wniosek został odrzucony.'),
-              backgroundColor: Colors.orange,
+            SnackBar(
+              content: const Text('Wniosek został odrzucony.'),
+              backgroundColor: Theme.of(context).colorScheme.tertiary,
             ),
           );
         }
@@ -245,7 +246,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(data['error']?.toString() ?? 'Nie udało się odrzucić wniosku.'),
-              backgroundColor: Colors.red,
+              backgroundColor: Theme.of(context).colorScheme.error,
             ),
           );
         }
@@ -257,13 +258,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Błąd odrzucania wniosku: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
       }
     }
   }
-
 
   Future<void> _updateReviewStatus(int logId, {bool? isReviewed, String? resolvedAtDateStr}) async {
     try {
@@ -491,7 +491,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     const SizedBox(height: 32),
 
                     if (_selectedTabIndex == 0) ...[
-                      _buildDashboardTab(),
+                      _buildDashboardTab(colorScheme),
                     ] else if (_selectedTabIndex == 1) ...[
                       _buildErrorLogsTab(colorScheme),
                     ] else if (_selectedTabIndex == 2) ...[
@@ -560,81 +560,164 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     );
   }
 
-  Widget _buildDashboardTab() {
-    if (_isLoadingUsers) return const Center(child: CircularProgressIndicator());
-    if (_users.isEmpty) return const Center(child: Text('Brak wniosków oczekujących na zatwierdzenie'));
+  Widget _buildDashboardTab(ColorScheme colorScheme) {
+    final pendingCount = _users.length;
+    final activeScrapersCount = _scrapers.length;
+    final supportedStoresCount = _stores.length;
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _users.length,
-      itemBuilder: (context, index) {
-        final u = _users[index];
-        Color statusColor = Colors.grey;
-        String statusText = (u['request_status'] ?? u['status'] ?? u['user_status'] ?? '-').toString();
-
-        if (statusText == 'pending_admin') {
-          statusColor = Colors.orange;
-          statusText = 'Oczekuje na zatwierdzenie';
-        } else if (statusText == 'onboarding_submitted') {
-          statusColor = Colors.blue;
-          statusText = 'Dane onboardingowe przesłane';
-        } else if (statusText == 'scraper_review') {
-          statusColor = Colors.purple;
-          statusText = 'Scrapery do weryfikacji';
-        } else if (statusText == 'approved') {
-          statusColor = Colors.green;
-          statusText = 'Zatwierdzony';
-        } else if (statusText == 'rejected') {
-          statusColor = Colors.red;
-          statusText = 'Odrzucony';
-        }
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          elevation: 0,
-          color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () {
-              Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => AdminUserDetailsScreen(userId: u['id']),
-              )).then((_) => _fetchPendingUsers());
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${u['first_name'] ?? ''} ${u['last_name'] ?? ''} (${u['username'] ?? '-'})',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Firma: ${u['requested_store_name'] ?? u['company_domain'] ?? '-'}',
-                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(color: statusColor.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
-                    child: Text(statusText, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(width: 16),
-                  const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-                ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _buildKpiCard('Oczekujące wnioski', '$pendingCount', colorScheme),
+            ),
+            const SizedBox(width: 24),
+            Expanded(
+              child: _buildKpiCard('Aktywne scrapery', '$activeScrapersCount', colorScheme),
+            ),
+            const SizedBox(width: 24),
+            Expanded(
+              child: _buildKpiCard('Liczba obsługiwanych sklepów', '$supportedStoresCount', colorScheme),
+            ),
+          ],
+        ),
+        const SizedBox(height: 32),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: colorScheme.surfaceContainerHighest),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Weryfikacja oczekujących rejestracji', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
+                    const SizedBox(height: 24),
+                    _isLoadingUsers
+                        ? const Center(child: CircularProgressIndicator())
+                        : _users.isEmpty
+                            ? const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 32),
+                                child: Center(child: Text('Brak oczekujących wniosków rejestracyjnych.')),
+                              )
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: _users.length,
+                                itemBuilder: (context, index) {
+                                  final u = _users[index];
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    elevation: 0,
+                                    color: colorScheme.surface,
+                                    child: ListTile(
+                                      title: Text('${u['first_name'] ?? ''} ${u['last_name'] ?? ''} (${u['username'] ?? '-'})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      subtitle: Text('Firma: ${u['requested_store_name'] ?? u['company_domain'] ?? '-'}'),
+                                      trailing: Icon(Icons.arrow_forward_ios, size: 14, color: colorScheme.onSurfaceVariant),
+                                      onTap: () {
+                                        Navigator.of(context).push(MaterialPageRoute(
+                                          builder: (_) => AdminUserDetailsScreen(userId: u['id']),
+                                        )).then((_) => _fetchPendingUsers());
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      },
+            const SizedBox(width: 24),
+            Expanded(
+              flex: 2,
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: colorScheme.surfaceContainerHighest),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Infrastruktura i zasoby', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
+                    const SizedBox(height: 24),
+                    _buildStatusRow('Core Scraper API', 'Operacyjny', colorScheme.primary, colorScheme),
+                    const SizedBox(height: 16),
+                    _buildStatusRow('Moduł AI Generator', 'Operacyjny', colorScheme.primary, colorScheme),
+                    const SizedBox(height: 16),
+                    _buildStatusRow('Główna baza danych', 'Połączono', colorScheme.primary, colorScheme),
+                    const SizedBox(height: 24),
+                    Divider(color: colorScheme.surfaceContainerHighest),
+                    const SizedBox(height: 24),
+                    Text('Zużycie limitów zadań API', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: colorScheme.onSurfaceVariant)),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(
+                      value: 0.34,
+                      backgroundColor: colorScheme.surfaceContainerHighest,
+                      color: colorScheme.primary,
+                      minHeight: 8,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('34,210 / 100,000 req', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
+                        Text('34%', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: colorScheme.primary)),
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildKpiCard(String title, String value, ColorScheme colorScheme) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.surfaceContainerHighest),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: TextStyle(fontSize: 14, color: colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 12),
+          Text(value, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusRow(String label, String status, Color color, ColorScheme colorScheme) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: TextStyle(color: colorScheme.onSurface)),
+        Row(
+          children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+            Text(status, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+          ],
+        )
+      ],
     );
   }
 
@@ -742,7 +825,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                               constraints: BoxConstraints(minWidth: constraints.maxWidth),
                               child: DataTable(
                                 showCheckboxColumn: false,
-                                headingRowColor: MaterialStateProperty.resolveWith((states) => colorScheme.primaryContainer.withOpacity(0.3)),
+                                headingRowColor: WidgetStateProperty.resolveWith((states) => colorScheme.primaryContainer.withOpacity(0.3)),
                                 dataRowMaxHeight: 65,
                                 columns: const [
                                   DataColumn(label: Expanded(child: Text('Kategoria', style: TextStyle(fontWeight: FontWeight.bold)))),
@@ -830,7 +913,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: DataTable(
-                headingRowColor: MaterialStateProperty.resolveWith((states) => colorScheme.primaryContainer.withOpacity(0.3)),
+                headingRowColor: WidgetStateProperty.resolveWith((states) => colorScheme.primaryContainer.withOpacity(0.3)),
                 dataRowMaxHeight: 65,
                 columns: const [
                   DataColumn(label: Expanded(child: Text('Nazwa sklepu', style: TextStyle(fontWeight: FontWeight.bold)))),
@@ -885,7 +968,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: DataTable(
                 showCheckboxColumn: false,
-                headingRowColor: MaterialStateProperty.resolveWith(
+                headingRowColor: WidgetStateProperty.resolveWith(
                   (states) => colorScheme.primaryContainer.withOpacity(0.3),
                 ),
                 dataRowMaxHeight: 65,
@@ -942,11 +1025,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                           status,
                           style: TextStyle(
                             color: status == 'pending_admin'
-                                ? Colors.orange
+                                ? colorScheme.tertiary
                                 : status == 'approved'
-                                    ? Colors.green
+                                    ? colorScheme.primary
                                     : status == 'rejected'
-                                        ? Colors.red
+                                        ? colorScheme.error
                                         : colorScheme.onSurfaceVariant,
                             fontWeight: FontWeight.bold,
                           ),
@@ -959,14 +1042,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                           children: [
                             IconButton(
                               tooltip: 'Zatwierdź',
-                              icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+                              icon: Icon(Icons.check_circle_outline, color: colorScheme.primary),
                               onPressed: canModerate
                                   ? () => _approveRegistrationRequest(req)
                                   : null,
                             ),
                             IconButton(
                               tooltip: 'Odrzuć',
-                              icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                              icon: Icon(Icons.cancel_outlined, color: colorScheme.error),
                               onPressed: canModerate
                                   ? () => _rejectRegistrationRequest(req)
                                   : null,
@@ -1184,7 +1267,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                         icon: const Icon(Icons.close),
                         label: const Text('Odrzuć'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
+                          foregroundColor: colorScheme.error,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1196,8 +1279,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                         icon: const Icon(Icons.check),
                         label: const Text('Zatwierdź'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
+                          backgroundColor: colorScheme.primary,
+                          foregroundColor: colorScheme.onPrimary,
                         ),
                       ),
                     ],
@@ -1224,10 +1307,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               child: FloatingActionButton.extended(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                 heroTag: 'settingsFabAdmin',
-                onPressed: () {
-                  setState(() => _isFabExpanded = false);
-                  _showSettingsModal();
-                },
+                onPressed: () => DialogUtils.showSettingsDialog(context),
                 backgroundColor: colorScheme.primaryContainer,
                 foregroundColor: colorScheme.onPrimaryContainer,
                 elevation: 1,
@@ -1251,57 +1331,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  void _showSettingsModal() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        final colorScheme = Theme.of(context).colorScheme;
-
-        return Dialog(
-          backgroundColor: colorScheme.surface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Container(
-            width: 450,
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Ustawienia systemu', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                ValueListenableBuilder<ThemeMode>(
-                  valueListenable: globalThemeNotifier,
-                  builder: (context, currentMode, child) {
-                    bool isDark = currentMode == ThemeMode.dark ||
-                                 (currentMode == ThemeMode.system && Theme.of(context).brightness == Brightness.dark);
-
-                    return SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Tryb ciemny (Dark Mode)', style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: const Text('Zmienia schemat kolorów aplikacji'),
-                      value: isDark,
-                      activeColor: colorScheme.primary,
-                      onChanged: (bool value) {
-                        globalThemeNotifier.value = value ? ThemeMode.dark : ThemeMode.light;
-                      },
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      }
     );
   }
 
@@ -1343,69 +1372,76 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: colorScheme.surfaceContainerHighest),
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(colorScheme.surfaceContainerHighest.withOpacity(0.5)),
-              columns: const [
-                DataColumn(label: Text('ID')),
-                DataColumn(label: Text('Nazwa (Spider)')),
-                DataColumn(label: Text('Klient')),
-                DataColumn(label: Text('Docelowy Sklep')),
-                DataColumn(label: Text('Ostatni Status')),
-                DataColumn(label: Text('Ostatnie Uruchomienie')),
-                DataColumn(label: Text('Akcje')),
-              ],
-              rows: _scrapers.map((s) {
-                final status = s['last_run_status'] ?? 'Brak uruchomień';
-                Color statusColor = Colors.grey;
-                if (status == 'success') statusColor = Colors.green;
-                else if (status == 'failed') statusColor = Colors.red;
-                else if (status == 'running') statusColor = Colors.blue;
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(colorScheme.surfaceContainerHighest.withOpacity(0.5)),
+                    columns: const [
+                      DataColumn(label: Expanded(child: Text('ID', style: TextStyle(fontWeight: FontWeight.bold)))),
+                      DataColumn(label: Expanded(child: Text('Nazwa (Spider)', style: TextStyle(fontWeight: FontWeight.bold)))),
+                      DataColumn(label: Expanded(child: Text('Klient', style: TextStyle(fontWeight: FontWeight.bold)))),
+                      DataColumn(label: Expanded(child: Text('Docelowy Sklep', style: TextStyle(fontWeight: FontWeight.bold)))),
+                      DataColumn(label: Expanded(child: Text('Ostatni Status', style: TextStyle(fontWeight: FontWeight.bold)))),
+                      DataColumn(label: Expanded(child: Text('Ostatnie Uruchomienie', style: TextStyle(fontWeight: FontWeight.bold)))),
+                      DataColumn(label: Expanded(child: Text('Akcje', style: TextStyle(fontWeight: FontWeight.bold)))),
+                    ],
+                    rows: _scrapers.map((s) {
+                      final status = s['last_run_status'] ?? 'Brak uruchomień';
+                      Color statusColor = colorScheme.onSurfaceVariant;
+                      if (status == 'success') statusColor = colorScheme.primary;
+                      else if (status == 'failed') statusColor = colorScheme.error;
+                      else if (status == 'running') statusColor = colorScheme.secondary;
 
-                final lastRunTime = s['last_run_time'] != null 
-                    ? DateTime.parse(s['last_run_time']).toLocal().toString().substring(0, 16)
-                    : '-';
+                      final lastRunTime = s['last_run_time'] != null 
+                          ? DateTime.parse(s['last_run_time']).toLocal().toString().substring(0, 16)
+                          : '-';
 
-                return DataRow(cells: [
-                  DataCell(Text(s['id'].toString())),
-                  DataCell(Text(s['spider_name'] ?? '-')),
-                  DataCell(Text(s['client_name'] ?? '-')),
-                  DataCell(Text(s['competitor_name'] ?? s['competitor_url'] ?? '-')),
-                  DataCell(
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        status,
-                        style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                  DataCell(Text(lastRunTime)),
-                  DataCell(
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => AdminScraperLogsScreen(
-                            scraperId: s['id'],
-                            spiderName: s['spider_name'],
+                      return DataRow(cells: [
+                        DataCell(Text(s['id'].toString())),
+                        DataCell(Text(s['spider_name'] ?? '-')),
+                        DataCell(Text(s['client_name'] ?? '-')),
+                        DataCell(Text(s['competitor_name'] ?? s['competitor_url'] ?? '-')),
+                        DataCell(
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              status,
+                              style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
+                            ),
                           ),
-                        ));
-                      },
-                      icon: const Icon(Icons.history, size: 16),
-                      label: const Text('Logi'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
-                    ),
+                        ),
+                        DataCell(Text(lastRunTime)),
+                        DataCell(
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(MaterialPageRoute(
+                                builder: (_) => AdminScraperLogsScreen(
+                                  scraperId: s['id'],
+                                  spiderName: s['spider_name'],
+                                ),
+                              ));
+                            },
+                            icon: const Icon(Icons.history, size: 16),
+                            label: const Text('Logi'),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                          ),
+                        ),
+                      ]);
+                    }).toList(),
                   ),
-                ]);
-              }).toList(),
-            ),
+                ),
+              );
+            }
           ),
         ),
       ],
