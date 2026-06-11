@@ -1,8 +1,59 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../../main.dart';
 
 class DialogUtils {
+
+  static void showSettingsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+
+        return Dialog(
+          backgroundColor: colorScheme.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            width: 450,
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Ustawienia systemu', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
+                    IconButton(icon: Icon(Icons.close, color: colorScheme.onSurface), onPressed: () => Navigator.pop(context)),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                ValueListenableBuilder<ThemeMode>(
+                  valueListenable: globalThemeNotifier,
+                  builder: (context, currentMode, child) {
+                    bool isDark = currentMode == ThemeMode.dark ||
+                                 (currentMode == ThemeMode.system && Theme.of(context).brightness == Brightness.dark);
+
+                    return SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('Tryb ciemny (Dark Mode)', style: TextStyle(fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
+                      subtitle: Text('Zmienia schemat kolorów aplikacji', style: TextStyle(color: colorScheme.onSurfaceVariant)),
+                      value: isDark,
+                      activeColor: colorScheme.primary,
+                      onChanged: (bool value) {
+                        globalThemeNotifier.value = value ? ThemeMode.dark : ThemeMode.light;
+                      },
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    );
+  }
   static Future<void> showReportBugDialog(BuildContext context) async {
     final TextEditingController bugController = TextEditingController();
     bool isSubmitting = false;

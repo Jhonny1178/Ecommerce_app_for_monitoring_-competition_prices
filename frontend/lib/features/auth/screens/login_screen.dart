@@ -127,20 +127,37 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             curve: Curves.easeInOut,
             child: _isFabExpanded
               ? Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: FloatingActionButton.extended(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      FloatingActionButton.extended(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        heroTag: 'reportErrorFab',
+                        onPressed: () =>
+                            DialogUtils.showReportBugDialog(context),
+                        backgroundColor: colorScheme.primaryContainer,
+                        foregroundColor: colorScheme.onPrimaryContainer,
+                        elevation: 1,
+                        icon: const Icon(Icons.error_outline),
+                        label: const Text('Zgłoś błąd'),
+                      ),
+                      const SizedBox(height: 12),
+                      FloatingActionButton.extended(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                        heroTag: 'settingsFabGlobal',
+                        onPressed: () => DialogUtils.showSettingsDialog(context),
+                        backgroundColor: colorScheme.primaryContainer,
+                        foregroundColor: colorScheme.onPrimaryContainer,
+                        elevation: 1,
+                        icon: const Icon(Icons.settings_outlined),
+                        label: const Text('Ustawienia'),
+                      ),
+                    ],
                   ),
-                  heroTag: 'reportErrorFab',
-                  onPressed: () => DialogUtils.showReportBugDialog(context),
-                  backgroundColor: colorScheme.primaryContainer,
-                  foregroundColor: colorScheme.onPrimaryContainer,
-                  elevation: 1,
-                  icon: const Icon(Icons.error_outline),
-                  label: const Text('Zgłoś błąd'),
-                ),
-              )
+                )
             : const SizedBox.shrink(),
           ),
           FloatingActionButton(

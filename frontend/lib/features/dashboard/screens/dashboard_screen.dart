@@ -1,5 +1,4 @@
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:tonten/core/api/api_client.dart';
@@ -23,7 +22,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedTabIndex = 0;
   bool _isLoadingStats = true;
   bool _isCheckingUserStatus = true;
-
+  final TextEditingController _newPasswordController = TextEditingController();
+  bool _isChangingPassword = false;
   Map<String, dynamic> _stats = {};
 
   @override
@@ -129,52 +129,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _openProfileOrOnboarding() async {
     try {
-      final response = await ApiClient.get(
-        Uri.parse('/api/me'),
-        headers: {'Accept': 'application/json'},
-      );
-
+      final response = await ApiClient.get(Uri.parse('/api/me'), headers: {'Accept': 'application/json'});
       if (!mounted) return;
-
+      
       if (response.statusCode != 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Nie udało się pobrać profilu.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Błąd profilu'), backgroundColor: Colors.red));
         return;
       }
-
+      
       final data = jsonDecode(response.body);
-
-      if (data['ok'] != true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(data['error']?.toString() ?? 'Błąd profilu.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-
       final user = data['user'] ?? {};
       final status = user['status']?.toString();
-
+      
       if (status == 'onboarding_required') {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FileUploadScreen()),
-        );
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FileUploadScreen()));
         return;
       }
-
+      
       final onboardingRequest = data['onboarding_request'] ?? {};
-      final onboardingSource = data['onboarding_source'] ?? {};
-      final mappings = data['field_mappings'] as List? ?? [];
-
-      final competitors = onboardingRequest['competitor_urls'] as List? ??
-          user['competitor_urls'] as List? ??
-          [];
 
       showDialog(
         context: context,
@@ -182,226 +154,194 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final colorScheme = Theme.of(dialogContext).colorScheme;
 
           return AlertDialog(
-            title: Text(
-              'Profil użytkownika',
-              style: TextStyle(
-                color: colorScheme.onSurface,
-                fontSize: 22,
-                fontWeight: FontWeight.w600,
-                decoration: TextDecoration.none,
-              ),
-            ),
+            backgroundColor: colorScheme.surface,
+            contentPadding: EdgeInsets.zero,
             content: SizedBox(
-              width: 760,
-              child: SingleChildScrollView(
-                child: DefaultTextStyle(
-                  style: TextStyle(
-                    color: colorScheme.onSurface,
-                    fontSize: 14,
-                    decoration: TextDecoration.none,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _dialogSectionTitle('Dane użytkownika', colorScheme),
-                      _infoLine(
-                        'Imię i nazwisko',
-                        '${user['first_name'] ?? '-'} ${user['last_name'] ?? ''}',
-                      ),
-                      _infoLine(
-                        'Email',
-                        '${user['email'] ?? user['username'] ?? '-'}',
-                      ),
-                      _infoLine(
-                        'Status',
-                        '${user['status'] ?? '-'}',
-                      ),
-                      const SizedBox(height: 16),
-                      const Divider(),
-
-                      _dialogSectionTitle('Dane sklepu', colorScheme),
-                      _infoLine(
-                        'Nazwa sklepu',
-                        '${onboardingRequest['requested_store_name'] ?? user['client_name'] ?? '-'}',
-                      ),
-                      _infoLine(
-                        'Domena',
-                        '${onboardingRequest['company_domain'] ?? user['company_domain'] ?? '-'}',
-                      ),
-                      _infoLine(
-                        'Link sklepu',
-                        '${onboardingRequest['website_url'] ?? user['client_website_url'] ?? '-'}',
-                      ),
-                      const SizedBox(height: 16),
-                      const Divider(),
-
-                      _dialogSectionTitle('Źródło produktów', colorScheme),
-                      _infoLine(
-                        'Typ źródła',
-                        '${onboardingRequest['source_type'] ?? onboardingSource['source_kind'] ?? '-'}',
-                      ),
-                      _infoLine(
-                        'Format',
-                        '${onboardingRequest['file_format'] ?? onboardingSource['file_format'] ?? '-'}',
-                      ),
-                      _infoLine(
-                        'Plik / ścieżka',
-                        '${onboardingRequest['source_path'] ?? onboardingSource['source_path'] ?? '-'}',
-                      ),
-                      _infoLine(
-                        'URL',
-                        '${onboardingRequest['source_url'] ?? onboardingSource['source_url'] ?? '-'}',
-                      ),
-                      const SizedBox(height: 16),
-                      const Divider(),
-
-                      _dialogSectionTitle('Mapowanie pól', colorScheme),
-                      if (mappings.isEmpty)
-                        Text(
-                          'Brak mapowania pól.',
-                          style: TextStyle(
-                            color: colorScheme.onSurfaceVariant,
-                            fontSize: 14,
-                            decoration: TextDecoration.none,
-                          ),
-                        )
-                      else
-                        ...mappings.map((mapping) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              '${mapping['external_field']} → ${mapping['internal_field']}',
-                              style: TextStyle(
-                                color: colorScheme.onSurfaceVariant,
-                                fontSize: 14,
-                                decoration: TextDecoration.none,
-                              ),
-                            ),
-                          );
-                        }),
-
-                      const SizedBox(height: 16),
-                      const Divider(),
-
-                      _dialogSectionTitle('Linki konkurencji', colorScheme),
-                      if (competitors.isEmpty)
-                        Text(
-                          'Brak linków konkurencji.',
-                          style: TextStyle(
-                            color: colorScheme.onSurfaceVariant,
-                            fontSize: 14,
-                            decoration: TextDecoration.none,
-                          ),
-                        )
-                      else
-                        ...competitors.map((url) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: SelectableText(
-                              url.toString(),
-                              style: TextStyle(
-                                color: colorScheme.onSurfaceVariant,
-                                fontSize: 14,
-                                decoration: TextDecoration.none,
-                              ),
-                            ),
-                          );
-                        }),
-
-                      const SizedBox(height: 16),
-                      const Divider(),
-
-                      _dialogSectionTitle('Zarządzanie subskrypcją', colorScheme),
-                      _infoLine('Aktualny pakiet', user['subscription_plan'] ?? 'Brak'),
-                      const SizedBox(height: 16),
-                      Row(
+              width: 800,
+              height: 600,
+              child: DefaultTabController(
+                length: 3,
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          FilledButton.icon(
-                            onPressed: () async {
-                              Navigator.pop(dialogContext);
-                              final changed = await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => SubscriptionScreen(
-                                    isChangingPlan: true,
-                                    currentPlan: user['subscription_plan']?.toString(),
-                                  ),
+                          Text('Profil i Ustawienia', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
+                          IconButton(icon: Icon(Icons.close, color: colorScheme.onSurface), onPressed: () => Navigator.pop(dialogContext)),
+                        ],
+                      ),
+                    ),
+                    TabBar(
+                      labelColor: colorScheme.primary,
+                      unselectedLabelColor: colorScheme.onSurfaceVariant,
+                      indicatorColor: colorScheme.primary,
+                      tabs: const [
+                        Tab(text: 'Dane konta i sklepu', icon: Icon(Icons.person)),
+                        Tab(text: 'Subskrypcja', icon: Icon(Icons.payment)),
+                        Tab(text: 'Bezpieczeństwo', icon: Icon(Icons.security)),
+                      ],
+                    ),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          // Zakładka 1: Dane
+                          SingleChildScrollView(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _dialogSectionTitle('Dane użytkownika', colorScheme),
+                                _infoLine('Imię i nazwisko', '${user['first_name'] ?? '-'} ${user['last_name'] ?? ''}'),
+                                _infoLine('Email', '${user['email'] ?? user['username'] ?? '-'}'),
+                                const Divider(),
+                                _dialogSectionTitle('Dane sklepu', colorScheme),
+                                _infoLine('Nazwa sklepu', '${onboardingRequest['requested_store_name'] ?? user['client_name'] ?? '-'}'),
+                                _infoLine('Domena', '${onboardingRequest['company_domain'] ?? user['company_domain'] ?? '-'}'),
+                                const Divider(),
+                                FilledButton.icon(
+                                  onPressed: () {
+                                    Navigator.pop(dialogContext);
+                                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FileUploadScreen()));
+                                  },
+                                  icon: const Icon(Icons.edit),
+                                  label: const Text('Edytuj konfigurację techniczną'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Zakładka 2: Płatności z dodanym anulowaniem
+                          Padding(
+                            padding: const EdgeInsets.all(32.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.stars, size: 64, color: Colors.amber),
+                                const SizedBox(height: 16),
+                                Text('Twój aktualny plan:', style: TextStyle(fontSize: 16, color: colorScheme.onSurfaceVariant)),
+                                Text('${user['subscription_plan'] ?? 'Brak'}', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: colorScheme.primary)),
+                                const SizedBox(height: 24),
+                                Text('Zarządzanie płatnościami pozwala na zmianę lub anulowanie subskrypcji systemu e-ROCH.', style: TextStyle(color: colorScheme.onSurface)),
+                                const SizedBox(height: 32),
+                                Row(
+                                  children: [
+                                    FilledButton.icon(
+                                      onPressed: () async {
+                                        Navigator.pop(dialogContext);
+                                        final changed = await Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (_) => SubscriptionScreen(
+                                              isChangingPlan: true,
+                                              currentPlan: user['subscription_plan']?.toString(),
+                                            ),
+                                          ),
+                                        );
+                                        if (changed == true) {
+                                          _fetchStats();
+                                          _openProfileOrOnboarding();
+                                        }
+                                      },
+                                      icon: const Icon(Icons.swap_horiz),
+                                      label: const Text('Zmień pakiet'),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text('Anuluj subskrypcję'),
+                                            content: const Text('Czy na pewno chcesz anulować subskrypcję? Stracisz natychmiastowy dostęp do systemu.'),
+                                            actions: [
+                                              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Nie')),
+                                              TextButton(
+                                                onPressed: () {
+                                                  Navigator.pop(ctx);
+                                                  Navigator.pop(dialogContext);
+                                                  _cancelSubscription();
+                                                },
+                                                child: const Text('Tak, anuluj', style: TextStyle(color: Colors.red)),
+                                              ),
+                                            ]
+                                          )
+                                        );
+                                      },
+                                      icon: const Icon(Icons.cancel, color: Colors.red),
+                                      label: const Text('Anuluj subskrypcję', style: TextStyle(color: Colors.red)),
+                                      style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Zakładka 3: Bezpieczeństwo
+                          StatefulBuilder(
+                            builder: (context, setTabState) {
+                              return Padding(
+                                padding: const EdgeInsets.all(32.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Zmiana hasła', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
+                                    const SizedBox(height: 16),
+                                    TextField(
+                                      controller: _newPasswordController,
+                                      obscureText: true,
+                                      decoration: InputDecoration(
+                                        labelText: 'Nowe hasło',
+                                        border: const OutlineInputBorder(),
+                                        filled: true,
+                                        fillColor: colorScheme.surfaceContainer,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 24),
+                                    FilledButton(
+                                      onPressed: _isChangingPassword ? null : () async {
+                                        if (_newPasswordController.text.length < 6) {
+                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hasło musi mieć min. 6 znaków'), backgroundColor: Colors.red));
+                                          return;
+                                        }
+                                        setTabState(() => _isChangingPassword = true);
+                                        try {
+                                          final res = await ApiClient.post(
+                                            Uri.parse('/api/change_password'),
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: jsonEncode({'new_password': _newPasswordController.text}),
+                                          );
+                                          if (res.statusCode == 200) {
+                                            _newPasswordController.clear();
+                                            if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hasło zmienione pomyślnie'), backgroundColor: Colors.green));
+                                          } else {
+                                            if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Błąd zmiany hasła. Status: ${res.statusCode}'), backgroundColor: Colors.red));
+                                          }
+                                        } catch (e) {
+                                          if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Błąd połączenia: $e'), backgroundColor: Colors.red));
+                                        } finally {
+                                          setTabState(() => _isChangingPassword = false);
+                                        }
+                                      },
+                                      child: _isChangingPassword ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('Zapisz nowe hasło'),
+                                    )
+                                  ],
                                 ),
                               );
-                              if (changed == true) {
-                                _fetchStats();
-                                _openProfileOrOnboarding(); // Otwórz z powrotem profil po zmianie
-                              }
-                            },
-                            icon: const Icon(Icons.swap_horiz),
-                            label: const Text('Zmień pakiet'),
+                            }
                           ),
-                          const SizedBox(width: 16),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text('Anuluj subskrypcję'),
-                                  content: const Text('Czy na pewno chcesz anulować subskrypcję? Stracisz natychmiastowy dostęp do systemu.'),
-                                  actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Nie')),
-                                    TextButton(
-                                      onPressed: () {
-                                        Navigator.pop(ctx);
-                                        Navigator.pop(dialogContext);
-                                        _cancelSubscription();
-                                      },
-                                      child: const Text('Tak, anuluj', style: TextStyle(color: Colors.red)),
-                                    ),
-                                  ]
-                                )
-                              );
-                            },
-                            icon: const Icon(Icons.cancel, color: Colors.red),
-                            label: const Text('Anuluj subskrypcję', style: TextStyle(color: Colors.red)),
-                            style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
-                          ),
-                        ]
+                        ],
                       ),
-
-                      const SizedBox(height: 24),
-
-                      FilledButton.icon(
-                        onPressed: () {
-                          Navigator.pop(dialogContext);
-
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const FileUploadScreen(),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.edit),
-                        label: const Text('Edytuj konfigurację'),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext),
-                child: const Text('Zamknij'),
-              ),
-            ],
           );
         },
       );
     } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Błąd profilu: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Błąd profilu: $e'), backgroundColor: Colors.red));
     }
   }
 
@@ -712,13 +652,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(30),
                         ),
-                        heroTag: 'settingsFab',
-                        onPressed: _openProfileOrOnboarding,
+                        heroTag: 'settingsFabGlobal',
+                        onPressed: () => DialogUtils.showSettingsDialog(context),
                         backgroundColor: colorScheme.primaryContainer,
                         foregroundColor: colorScheme.onPrimaryContainer,
                         elevation: 1,
                         icon: const Icon(Icons.settings_outlined),
-                        label: const Text('Konfiguracja'),
+                        label: const Text('Ustawienia'),
                       ),
                     ],
                   ),
