@@ -236,9 +236,7 @@ CREATE TABLE IF NOT EXISTS scraper_registry (
 
     generated_at    TIMESTAMP DEFAULT NOW(),
     approved_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    approved_at     TIMESTAMP,
-
-
+    approved_at     TIMESTAMP
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_scraper_registry_client_spider
 ON scraper_registry(client_id, spider_name)

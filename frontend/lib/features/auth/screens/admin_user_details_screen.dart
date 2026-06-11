@@ -199,7 +199,7 @@ class _AdminUserDetailsScreenState extends State<AdminUserDetailsScreen> {
         ],
       ),
       body: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Lewy panel - informacje o użytkowniku i akcje
           Container(
