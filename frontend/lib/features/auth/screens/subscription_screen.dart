@@ -5,7 +5,14 @@ import 'auth_router.dart';
 import 'login_screen.dart';
 
 class SubscriptionScreen extends StatefulWidget {
-  const SubscriptionScreen({super.key});
+  final bool isChangingPlan;
+  final String? currentPlan;
+
+  const SubscriptionScreen({
+    super.key,
+    this.isChangingPlan = false,
+    this.currentPlan,
+  });
 
   @override
   State<SubscriptionScreen> createState() => _SubscriptionScreenState();
@@ -17,15 +24,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   Future<void> _buyPackage(String package) async {
     setState(() => _isLoading = true);
     try {
-      final url = Uri.parse("/api/subscription/buy");
+      final endpoint = widget.isChangingPlan ? "/api/subscription/change" : "/api/subscription/buy";
+      final url = Uri.parse(endpoint);
       final response = await ApiClient.post(url, headers: {'Content-Type': 'application/json'}, body: jsonEncode({'package': package}));
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200 && data['ok'] == true) {
         if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const AuthRouter(status: 'pending_admin', isAdmin: false)),
-          );
+          if (widget.isChangingPlan) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pakiet został zmieniony.'), backgroundColor: Colors.green));
+            Navigator.of(context).pop(true); // Wracamy do dashboardu, informując o zmianie
+          } else {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const AuthRouter(status: 'pending_admin', isAdmin: false)),
+            );
+          }
         }
       } else {
         if (mounted) {
@@ -52,17 +65,28 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     return Scaffold(
       backgroundColor: colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Wybierz Pakiet'),
-        actions: [IconButton(icon: const Icon(Icons.logout), onPressed: _logout)],
+        title: Text(widget.isChangingPlan ? 'Zmiana Pakietu' : 'Wybierz Pakiet'),
+        actions: [
+          if (!widget.isChangingPlan)
+            IconButton(icon: const Icon(Icons.logout), onPressed: _logout)
+        ],
       ),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
           child: Column(
             children: [
-              const Text('Konto wstępnie skonfigurowane!', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+              Text(
+                widget.isChangingPlan ? 'Wybierz nowy pakiet' : 'Konto wstępnie skonfigurowane!',
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
-              const Text('Wybierz plan, aby rozpocząć korzystanie z e-ROCH. Pierwszy miesiąc jest darmowy.', style: TextStyle(fontSize: 16)),
+              Text(
+                widget.isChangingPlan 
+                    ? 'Wybierz nowy plan. Zmiana zostanie zastosowana natychmiastowo.'
+                    : 'Wybierz plan, aby rozpocząć korzystanie z e-ROCH. Pierwszy miesiąc jest darmowy.',
+                style: const TextStyle(fontSize: 16),
+              ),
               const SizedBox(height: 48),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -75,11 +99,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ],
               ),
               const SizedBox(height: 48),
-              const Text(
-                'Twój wniosek po wyborze pakietu trafi do weryfikacji przez administratora.\nW przyszłości będziesz mógł zmienić pakiet lub z niego zrezygnować.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 12),
-              )
+              if (!widget.isChangingPlan)
+                const Text(
+                  'Twój wniosek po wyborze pakietu trafi do weryfikacji przez administratora.\nW przyszłości będziesz mógł zmienić pakiet lub z niego zrezygnować.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                )
             ],
           ),
         ),
@@ -108,13 +133,20 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             child: Row(children: [const Icon(Icons.check, size: 16), const SizedBox(width: 8), Expanded(child: Text(f))]),
           )),
           const SizedBox(height: 32),
-          FilledButton(
-            onPressed: _isLoading ? null : () => _buyPackage(packageId),
-            style: FilledButton.styleFrom(
-              backgroundColor: featured ? colorScheme.primary : colorScheme.secondary,
-              foregroundColor: featured ? colorScheme.onPrimary : colorScheme.onSecondary,
+          ElevatedButton(
+            onPressed: _isLoading || (widget.currentPlan == packageId) ? null : () => _buyPackage(packageId),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colorScheme.primary,
+              foregroundColor: colorScheme.onPrimary,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            child: const Text('Wybierz i aktywuj'),
+            child: Text(
+              _isLoading 
+                  ? 'Przetwarzanie...' 
+                  : (widget.currentPlan == packageId ? 'Aktualny plan' : 'Wybierz'),
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
