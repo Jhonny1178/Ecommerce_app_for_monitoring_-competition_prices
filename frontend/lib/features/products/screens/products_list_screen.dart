@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:google_fonts/google_fonts.dart';
 import 'product_details_screen.dart';
+import 'package:tonten/core/api/api_client.dart';
 
 class ProductsListScreen extends StatefulWidget {
   const ProductsListScreen({super.key});
@@ -28,8 +27,14 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
   Future<void> _fetchProducts() async {
     setState(() => _isLoading = true);
     try {
-      final url = Uri.parse("/api/products?page=$_currentPage&per_page=20&search=$_searchQuery");
-      final response = await http.get(url, headers: {'Accept': 'application/json'});
+      final url = Uri.parse(
+      "/api/products?page=$_currentPage&per_page=20&search=$_searchQuery",
+      );
+
+      final response = await ApiClient.get(
+      url,
+      headers: {'Accept': 'application/json'},
+      );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -149,7 +154,7 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
   Widget _buildProductCard(dynamic product, ColorScheme colorScheme) {
     final String name = product['name'] ?? 'Brak nazwy';
     final String sku = product['sku'] ?? 'N/A';
-    final double? price = product['price_special'] ?? product['price_normal'];
+    final num? price = product['price_special'] ?? product['price_normal'];
     final String imageUrl = product['image'] ?? '';
 
     return Card(

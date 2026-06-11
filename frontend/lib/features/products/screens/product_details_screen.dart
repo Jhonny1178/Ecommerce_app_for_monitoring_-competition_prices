@@ -1,12 +1,16 @@
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:tonten/core/api/api_client.dart';
 
 class ProductDetailsScreen extends StatefulWidget {
   final int productId;
 
-  const ProductDetailsScreen({super.key, required this.productId});
+  const ProductDetailsScreen({
+    super.key,
+    required this.productId,
+  });
 
   @override
   State<ProductDetailsScreen> createState() => _ProductDetailsScreenState();
@@ -16,7 +20,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   bool _isLoading = true;
   Map<String, dynamic>? _product;
   List<dynamic> _competitors = [];
-  
+
   bool _isRecommending = false;
   double? _recommendedPrice;
   String? _recommendationReason;
@@ -28,45 +32,81 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   Future<void> _fetchDetails() async {
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
+
     try {
       final url = Uri.parse("/api/products/${widget.productId}");
-      final response = await http.get(url, headers: {'Accept': 'application/json'});
+
+      final response = await ApiClient.get(
+        url,
+        headers: {'Accept': 'application/json'},
+      );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+
         if (data['ok'] == true) {
-          setState(() {
-            _product = data['data'];
-            _competitors = data['competitors'] ?? [];
-          });
+          if (mounted) {
+            setState(() {
+              _product = data['data'];
+              _competitors = data['competitors'] ?? [];
+            });
+          }
+        } else {
+          debugPrint("API error: ${data['error']}");
         }
+      } else {
+        debugPrint("HTTP error: ${response.statusCode}");
       }
-      setState(() => _isLoading = false);
     } catch (e) {
       debugPrint("Błąd pobierania detali: $e");
-      setState(() => _isLoading = false);
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _getRecommendation() async {
-    setState(() => _isRecommending = true);
+    if (mounted) {
+      setState(() => _isRecommending = true);
+    }
+
     try {
       final url = Uri.parse("/api/products/${widget.productId}/recommend");
-      final response = await http.post(url, headers: {'Accept': 'application/json'});
+
+      final response = await ApiClient.post(
+        url,
+        headers: {'Accept': 'application/json'},
+      );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+
         if (data['ok'] == true) {
-          setState(() {
-            _recommendedPrice = data['recommendation'];
-            _recommendationReason = data['reason'];
-          });
+          final rawRecommendation = data['recommendation'];
+
+          if (mounted) {
+            setState(() {
+              _recommendedPrice = rawRecommendation is num
+                  ? rawRecommendation.toDouble()
+                  : double.tryParse(rawRecommendation?.toString() ?? '');
+
+              _recommendationReason = data['reason']?.toString();
+            });
+          }
         }
+      } else {
+        debugPrint("HTTP recommendation error: ${response.statusCode}");
       }
     } catch (e) {
       debugPrint("Błąd AI: $e");
     } finally {
-      setState(() => _isRecommending = false);
+      if (mounted) {
+        setState(() => _isRecommending = false);
+      }
     }
   }
 
@@ -77,7 +117,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     return Scaffold(
       backgroundColor: colorScheme.surface,
       appBar: AppBar(
-        title: Text("Szczegóły Produktu", style: GoogleFonts.overpass()),
+        title: Text(
+          "Szczegóły Produktu",
+          style: GoogleFonts.overpass(),
+        ),
         backgroundColor: colorScheme.surface,
         elevation: 0,
         centerTitle: true,
@@ -114,12 +157,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   Widget _buildProductHeader(ColorScheme colorScheme) {
-    final String name = _product?['name'] ?? 'Brak nazwy';
-    final String sku = _product?['sku'] ?? 'N/A';
-    final String category = _product?['category'] ?? 'Brak kategorii';
-    final double? priceNormal = _product?['price_normal'];
-    final double? priceSpecial = _product?['price_special'];
-    final String imageUrl = _product?['image'] ?? '';
+    final String name = _product?['name']?.toString() ?? 'Brak nazwy';
+    final String sku = _product?['sku']?.toString() ?? 'N/A';
+    final String category = _product?['category']?.toString() ?? 'Brak kategorii';
+
+    final num? priceNormal = _toNum(_product?['price_normal']);
+    final num? priceSpecial = _toNum(_product?['price_special']);
+
+    final String imageUrl = _product?['image']?.toString() ?? '';
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -142,7 +187,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     child: Image.network(
                       imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.image_not_supported, size: 50),
+                      errorBuilder: (context, error, stackTrace) =>
+                          const Icon(Icons.image_not_supported, size: 50),
                     ),
                   )
                 : const Icon(Icons.inventory, size: 50),
@@ -153,23 +199,39 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     category,
-                    style: TextStyle(color: colorScheme.onPrimaryContainer, fontWeight: FontWeight.bold, fontSize: 12),
+                    style: TextStyle(
+                      color: colorScheme.onPrimaryContainer,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   name,
-                  style: GoogleFonts.overpass(fontSize: 32, fontWeight: FontWeight.bold),
+                  style: GoogleFonts.overpass(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Text("SKU: $sku", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 16)),
+                Text(
+                  "SKU: $sku",
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 16,
+                  ),
+                ),
               ],
             ),
           ),
@@ -206,7 +268,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       children: [
         Text(
           "Ceny u konkurencji",
-          style: GoogleFonts.overpass(fontSize: 24, fontWeight: FontWeight.bold),
+          style: GoogleFonts.overpass(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 16),
         _competitors.isEmpty
@@ -216,7 +281,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Text("Brak danych o konkurencji (aktualnie wyświetlamy test_competitors jako główne produkty)"),
+                child: const Text("Brak danych o konkurencji."),
               )
             : ListView.builder(
                 shrinkWrap: true,
@@ -224,14 +289,72 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 itemCount: _competitors.length,
                 itemBuilder: (context, index) {
                   final comp = _competitors[index];
+
+                  final String compName =
+                      comp['comp_name']?.toString() ??
+                      comp['name']?.toString() ??
+                      comp['spider_dummy_name']?.toString() ??
+                      'Nieznany konkurent';
+
+                  final String shopName =
+                      comp['shop_label']?.toString() ??
+                      comp['store']?.toString() ??
+                      'Nieznany sklep';
+
+                  final num? price = _toNum(
+                    comp['comp_price_special'] ??
+                        comp['comp_price_normal'] ??
+                        comp['price_special'] ??
+                        comp['price_normal'] ??
+                        comp['spider_dummy_price'],
+                  );
+
+                  final String? url =
+                      comp['url']?.toString() ??
+                      comp['spider_dummy_url']?.toString();
+
+                  final num? priceDifference = _toNum(
+                    comp['price_difference'],
+                  );
+
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
-                      title: Text(comp['comp_name'] ?? 'Nieznany konkurent'),
-                      subtitle: Text("Sklep: ${comp['shop_label']}"),
+                      title: Text(compName),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Sklep: $shopName"),
+                          if (url != null && url.isNotEmpty)
+                            Text(
+                              url,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: colorScheme.primary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          if (priceDifference != null)
+                            Text(
+                              "Różnica: ${priceDifference.toStringAsFixed(2)} zł",
+                              style: TextStyle(
+                                color: priceDifference < 0
+                                    ? Colors.green
+                                    : colorScheme.error,
+                                fontSize: 12,
+                              ),
+                            ),
+                        ],
+                      ),
                       trailing: Text(
-                        "${comp['comp_price_special'] ?? comp['comp_price_normal'] ?? 0} zł",
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        price != null
+                            ? "${price.toStringAsFixed(2)} zł"
+                            : "Brak ceny",
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                     ),
                   );
@@ -253,7 +376,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.auto_awesome, color: colorScheme.onSecondaryContainer),
+              Icon(
+                Icons.auto_awesome,
+                color: colorScheme.onSecondaryContainer,
+              ),
               const SizedBox(width: 8),
               Text(
                 "Inteligentna wycena",
@@ -269,7 +395,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
           if (_recommendedPrice != null) ...[
             Text(
               "Sugerowana cena:",
-              style: TextStyle(color: colorScheme.onSecondaryContainer.withOpacity(0.8)),
+              style: TextStyle(
+                color: colorScheme.onSecondaryContainer.withOpacity(0.8),
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -307,7 +435,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
               backgroundColor: colorScheme.onSecondaryContainer,
               foregroundColor: colorScheme.secondaryContainer,
               padding: const EdgeInsets.symmetric(vertical: 20),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
             child: _isRecommending
                 ? SizedBox(
@@ -320,11 +450,20 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   )
                 : const Text(
                     "Generuj rekomendację",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
           ),
         ],
       ),
     );
+  }
+
+  num? _toNum(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value;
+    return num.tryParse(value.toString());
   }
 }
