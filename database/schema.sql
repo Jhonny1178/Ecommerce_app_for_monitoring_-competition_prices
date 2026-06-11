@@ -389,7 +389,35 @@ EXECUTE FUNCTION set_updated_at();
 -- 14. DEV SEED
 --     Seed lokalny: tylko jeden aktywny klient bez tworzenia userów.
 -- ============================================================
-
+INSERT INTO users (
+    username,
+    password_hash,
+    is_admin,
+    client_id,
+    status,
+    first_name,
+    last_name,
+    email
+)
+VALUES (
+    'admin',
+    encode(digest('admin123', 'sha256'), 'hex'),
+    TRUE,
+    NULL,
+    'active',
+    'Admin',
+    'System',
+    'admin@example.com'
+)
+ON CONFLICT (username) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    is_admin = EXCLUDED.is_admin,
+    client_id = NULL,
+    status = EXCLUDED.status,
+    first_name = EXCLUDED.first_name,
+    last_name = EXCLUDED.last_name,
+    email = EXCLUDED.email,
+    updated_at = NOW();
 INSERT INTO clients (
     name,
     slug,
