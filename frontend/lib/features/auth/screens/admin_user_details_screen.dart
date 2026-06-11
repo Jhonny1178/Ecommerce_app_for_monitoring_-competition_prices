@@ -118,7 +118,8 @@ class _AdminUserDetailsScreenState extends State<AdminUserDetailsScreen> {
         }
 
         // Format datetime slightly
-        final dt = DateTime.parse(log['created_at']);
+        final dtStr = log['created_at'];
+        final dt = dtStr != null ? DateTime.tryParse(dtStr.toString()) ?? DateTime.now() : DateTime.now();
         final timeStr = "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}";
 
         return Padding(
@@ -183,7 +184,7 @@ class _AdminUserDetailsScreenState extends State<AdminUserDetailsScreen> {
     // Grupowanie logów po url
     final Map<String, List<dynamic>> groupedLogs = {};
     for (var log in _logs) {
-      final url = log['url'] as String;
+      final url = log['url']?.toString() ?? 'Proces Główny';
       if (!groupedLogs.containsKey(url)) {
         groupedLogs[url] = [];
       }

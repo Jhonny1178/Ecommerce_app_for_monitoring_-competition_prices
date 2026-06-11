@@ -244,6 +244,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     }
   }
 
+
   Future<void> _updateReviewStatus(int logId, {bool? isReviewed, String? resolvedAtDateStr}) async {
     try {
       Map<String, dynamic> bodyData = {};

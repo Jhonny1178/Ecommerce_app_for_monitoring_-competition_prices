@@ -6,28 +6,28 @@ from ecommerce_price_comparer.items import ProductData
 from ecommerce_price_comparer.utilities.scraper_engine import extract_data_using_map
 
 class ReadyScraperSpider(scrapy.Spider):
-    name = "podpierzyna_spider"
+    name = "jmbdesign_spider"
 
     css_map = {
-        "product_name": "h1.product_name__name",
-        "product_id": "span.prod-id > span",
-        "brand": "div.dictionary__param[data-producer='true'] a.dictionary__value_txt",
-        "color": None,
+        "product_name": "h1.product__title-desktop",
+        "product_id": "input#product_page_product_id",
+        "brand": "div.product__manufacturer-block",
+        "color": "td:nth-child(3)",
         "old_price": None,
-        "special_price": "strong.projector_prices__price span[data-subscription-before]",
-        "breadcrumbs_wrapper": None,
-        "breadcrumb_item": None,
-        "specifications_row": "div.dictionary__param",
-        "spec_name": "div.dictionary__name span.dictionary__name_txt",
-        "spec_value": "div.dictionary__values div.dictionary__value span.dictionary__value_txt",
-        "variants_wrapper": "div.projector_details__sizes",
-        "variant_option": "select.projector_sizes__select option",
+        "special_price": "span.product-price--current",
+        "breadcrumbs_wrapper": "nav[data-depth='5']",
+        "breadcrumb_item": "li.breadcrumb-item a",
+        "specifications_row": "tr",
+        "spec_name": "td:first-child",
+        "spec_value": "td:nth-child(2)",
+        "variants_wrapper": "div.product-variants",
+        "variant_option": "option",
         "variant_price_attribute": None,
-        "description": "section.longdescription",
+        "description": "div.product-description",
     }
 
     def start_requests(self):
-        default_links_path = os.path.join(os.path.dirname(__file__), 'podpierzyna_links.txt')
+        default_links_path = os.path.join(os.path.dirname(__file__), 'jmbdesign_links.txt')
         links_file_path = getattr(self, 'links_file', default_links_path)
 
         if os.path.exists(links_file_path):
@@ -47,11 +47,7 @@ class ReadyScraperSpider(scrapy.Spider):
         if not extracted_data:
             return
 
-        for data in extracted_data:
-            item = self.build_product_data(data)
-            if item:
-                item['url'] = data.get('url') or response.url
-                yield item
+        yield self.build_product_data(extracted_data)
 
     def build_product_data(self, raw_data):
         sku = raw_data.get('sku') or raw_data.get('product_id')

@@ -268,7 +268,48 @@ def api_register():
 
         request_id = cur.fetchone()[0]
 
+        from services.provisioning import provision_client_from_request
+        prov_res = provision_client_from_request(
+            conn=conn,
+            user_id=user_id,
+            request_id=request_id,
+            store_name=requested_store_name or company_domain,
+            requested_store_slug=company_domain,
+            company_domain=company_domain,
+            website_url=website_url,
+            source_type="pending",
+            source_path=None,
+            source_url=None,
+            file_format=None,
+            field_mapping={}
+        )
+        client_id = prov_res["client_id"]
+        store_slug = prov_res["store_prefix"]
+
         conn.commit()
+
+        # Trigger scraper generator immediately
+        try:
+            payload = {
+                "request_id": request_id,
+                "user_id": user_id,
+                "client_id": client_id,
+                "store_slug": store_slug,
+                "urls": competitor_urls
+            }
+            import threading
+            def _fire_generator(p):
+                try:
+                    import requests
+                    requests.post("http://ai_generator:8080/api/check", json=p, timeout=10)
+                except Exception as e:
+                    print(f"Failed to auto-trigger generator: {e}")
+
+            threading.Thread(target=_fire_generator, args=(payload,)).start()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
         cur.close()
         conn.close()
 
@@ -676,6 +717,33 @@ def _save_onboarding_submission():
             ))
 
         conn.commit()
+
+        # Trigger scraper generator
+        try:
+            cur.execute("SELECT slug, store_prefix FROM clients WHERE id = %s", (client_id,))
+            c_row = cur.fetchone()
+            store_slug = "default_slug"
+            if c_row:
+                store_slug = c_row["store_prefix"] or c_row["slug"]
+                
+            payload = {
+                "request_id": request_id,
+                "user_id": user_id,
+                "client_id": client_id,
+                "store_slug": store_slug,
+                "urls": competitor_urls
+            }
+            import threading
+            def _fire_generator(p):
+                try:
+                    requests.post("http://ai_generator:8080/api/check", json=p, timeout=10)
+                except Exception as e:
+                    print(f"Failed to auto-trigger generator: {e}")
+
+            threading.Thread(target=_fire_generator, args=(payload,)).start()
+        except Exception:
+            traceback.print_exc()
+
         cur.close()
         conn.close()
 
@@ -917,21 +985,6 @@ def admin_approve_user():
                 "error": "Onboarding request not found or is not pending_admin."
             }), 404
 
-        result = provision_client_from_request(
-            conn=conn,
-            user_id=onboarding_request["user_id"],
-            request_id=onboarding_request["id"],
-            store_name=onboarding_request["requested_store_name"],
-            requested_store_slug=onboarding_request.get("requested_store_slug"),
-            company_domain=onboarding_request.get("company_domain"),
-            website_url=onboarding_request.get("website_url"),
-            source_type=onboarding_request.get("source_type") or "pending",
-            source_path=onboarding_request.get("source_path"),
-            source_url=onboarding_request.get("source_url"),
-            file_format=onboarding_request.get("file_format"),
-            field_mapping=onboarding_request.get("field_mapping") or {}
-        )
-
         cur.execute("""
             UPDATE onboarding_requests
             SET approved_by = %s,
@@ -959,10 +1012,7 @@ def admin_approve_user():
 
         return jsonify({
             "ok": True,
-            "message": "User approved and client provisioned successfully.",
-            "client_id": result.get("client_id"),
-            "store_prefix": result.get("store_prefix"),
-            "slug": result.get("slug"),
+            "message": "User approved successfully.",
             "status": "onboarding_required"
         })
 
