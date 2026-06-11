@@ -60,6 +60,126 @@ def _latest_onboarding_request(cur, user_id):
     return cur.fetchone()
 
 
+def _safe_slug(value, fallback):
+    value = (value or fallback or "").strip().lower()
+
+    value = (
+        value
+        .replace("https://", "")
+        .replace("http://", "")
+        .replace("www.", "")
+        .replace(".", "_")
+        .replace("-", "_")
+        .replace("/", "_")
+        .replace(":", "_")
+        .replace("?", "_")
+        .replace("&", "_")
+        .replace("=", "_")
+        .replace(" ", "_")
+        .strip("_")
+    )
+
+    return value or fallback
+
+
+def _trigger_scraper_generator_async(request_id, user_id, store_slug, urls):
+    """
+    Odpala generator scraperów po rejestracji.
+    Na tym etapie NIE istnieje jeszcze client_id.
+    Generator powinien zapisać scrapery w scraper_registry po request_id.
+    """
+    urls = _normalize_list(urls)
+
+    if not urls:
+        print("No competitor URLs provided. Skipping scraper generator.")
+        return
+
+    payload = {
+        "request_id": request_id,
+        "user_id": user_id,
+        "client_id": None,
+        "store_slug": store_slug,
+        "urls": urls,
+    }
+
+    def _fire_generator(p):
+        try:
+            response = requests.post(
+                "http://ai_generator:8080/api/check",
+                json=p,
+                timeout=10,
+            )
+            print(
+                f"Scraper generator triggered. "
+                f"Status={response.status_code}, body={response.text[:300]}"
+            )
+        except Exception as e:
+            print(f"Failed to auto-trigger scraper generator: {e}")
+
+    import threading
+    threading.Thread(
+        target=_fire_generator,
+        args=(payload,),
+        daemon=True,
+    ).start()
+
+
+def _attach_scrapers_to_client(cur, request_id, client_id, store_prefix, admin_user_id):
+    """
+    Po akceptacji admina przypina wygenerowane scrapery z request_id do client_id
+    i zwraca listę spider_name do zapisania w clients.spiders_to_run.
+    """
+    output_table = f"{store_prefix}_competitors"
+
+    cur.execute("""
+        UPDATE scraper_registry
+        SET client_id = %s,
+            store_slug = %s,
+            output_table = %s,
+            status = CASE
+                WHEN status IN ('generated', 'ready', 'success', 'scraper_review') THEN 'approved'
+                ELSE status
+            END,
+            approved_by = %s,
+            approved_at = COALESCE(approved_at, NOW())
+        WHERE request_id = %s
+          AND client_id IS NULL
+          AND status NOT IN ('failed', 'rejected')
+        RETURNING spider_name
+    """, (
+        client_id,
+        store_prefix,
+        output_table,
+        admin_user_id,
+        request_id,
+    ))
+
+    rows = cur.fetchall()
+    spider_names = [
+        row["spider_name"]
+        for row in rows
+        if row.get("spider_name")
+    ]
+
+    cur.execute("""
+        SELECT spider_name
+        FROM scraper_registry
+        WHERE request_id = %s
+          AND client_id = %s
+          AND status NOT IN ('failed', 'rejected')
+    """, (
+        request_id,
+        client_id,
+    ))
+
+    for row in cur.fetchall():
+        spider_name = row.get("spider_name")
+        if spider_name and spider_name not in spider_names:
+            spider_names.append(spider_name)
+
+    return spider_names
+
+
 def send_email(subject, body, to_email=None):
     smtp_host = os.environ.get("SMTP_HOST")
     smtp_port = int(os.environ.get("SMTP_PORT", "465"))
@@ -199,7 +319,6 @@ def api_register():
         or data.get("requested_store_name")
         or company_domain
     )
-
     requested_store_name = (requested_store_name or "").strip()
 
     if not first_name or not last_name or not email or not password or not company_domain:
@@ -218,6 +337,7 @@ def api_register():
     urls_json = json.dumps(competitor_urls)
 
     conn = get_db_transaction()
+    cur = None
 
     try:
         cur = conn.cursor()
@@ -268,50 +388,21 @@ def api_register():
 
         request_id = cur.fetchone()[0]
 
-        from services.provisioning import provision_client_from_request
-        prov_res = provision_client_from_request(
-            conn=conn,
-            user_id=user_id,
-            request_id=request_id,
-            store_name=requested_store_name or company_domain,
-            requested_store_slug=company_domain,
-            company_domain=company_domain,
-            website_url=website_url,
-            source_type="pending",
-            source_path=None,
-            source_url=None,
-            file_format=None,
-            field_mapping={}
+        temporary_store_slug = _safe_slug(
+            company_domain or requested_store_name,
+            f"request_{request_id}"
         )
-        client_id = prov_res["client_id"]
-        store_slug = prov_res["store_prefix"]
 
         conn.commit()
 
-        # Trigger scraper generator immediately
-        try:
-            payload = {
-                "request_id": request_id,
-                "user_id": user_id,
-                "client_id": client_id,
-                "store_slug": store_slug,
-                "urls": competitor_urls
-            }
-            import threading
-            def _fire_generator(p):
-                try:
-                    import requests
-                    requests.post("http://ai_generator:8080/api/check", json=p, timeout=10)
-                except Exception as e:
-                    print(f"Failed to auto-trigger generator: {e}")
-
-            threading.Thread(target=_fire_generator, args=(payload,)).start()
-        except Exception:
-            import traceback
-            traceback.print_exc()
-
-        cur.close()
-        conn.close()
+        # Generator scraperów uruchamiamy teraz, ale BEZ client_id.
+        # Wynik powinien zostać zapisany po request_id.
+        _trigger_scraper_generator_async(
+            request_id=request_id,
+            user_id=user_id,
+            store_slug=temporary_store_slug,
+            urls=competitor_urls,
+        )
 
         return jsonify({
             "ok": True,
@@ -322,7 +413,6 @@ def api_register():
 
     except errors.UniqueViolation:
         conn.rollback()
-        conn.close()
         return jsonify({
             "ok": False,
             "error": "User with this email already exists."
@@ -331,11 +421,15 @@ def api_register():
     except Exception as e:
         traceback.print_exc()
         conn.rollback()
-        conn.close()
         return jsonify({
             "ok": False,
             "error": f"Database error: {e}"
         }), 500
+
+    finally:
+        if cur:
+            cur.close()
+        conn.close()
 
 
 # ============================================================
@@ -554,11 +648,10 @@ def _save_onboarding_submission():
                 "error": "source_url is required for url source"
             }), 400
 
-        # DataExtractor używa source_path.
-        # Dla URL ustawiamy source_path = source_url.
         source_path = source_url
 
     conn = get_db_transaction()
+    cur = None
 
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -572,7 +665,6 @@ def _save_onboarding_submission():
             FROM onboarding_requests
             WHERE user_id = %s
               AND status IN (
-                    'pending_admin',
                     'onboarding_required',
                     'onboarding_submitted',
                     'configured',
@@ -587,18 +679,26 @@ def _save_onboarding_submission():
 
         if not onboarding_request:
             conn.rollback()
-            cur.close()
-            conn.close()
             return jsonify({
                 "ok": False,
-                "error": "No onboarding request found"
-            }), 404
+                "error": "No approved onboarding request found. Admin approval is required first."
+            }), 403
 
         request_id = onboarding_request["id"]
         client_id = onboarding_request["client_id"]
 
+        if not client_id:
+            conn.rollback()
+            return jsonify({
+                "ok": False,
+                "error": "Client has not been created yet. Admin approval is required first."
+            }), 403
+
         if not store_name:
             store_name = onboarding_request["requested_store_name"]
+
+        if not competitor_urls:
+            competitor_urls = _normalize_list(onboarding_request.get("competitor_urls"))
 
         cur.execute("""
             DELETE FROM onboarding_sources
@@ -692,60 +792,30 @@ def _save_onboarding_submission():
             user_id
         ))
 
-        if client_id:
-            cur.execute("""
-                UPDATE clients
-                SET name = %s,
-                    website_url = COALESCE(%s, website_url),
-                    source_type = %s,
-                    source_path = %s,
-                    source_url = %s,
-                    file_format = %s,
-                    field_mapping = %s::jsonb,
-                    is_active = TRUE,
-                    updated_at = NOW()
-                WHERE id = %s
-            """, (
-                store_name,
-                website_url,
-                source_type,
-                source_path,
-                source_url,
-                file_format,
-                json.dumps(field_mapping),
-                client_id
-            ))
+        cur.execute("""
+            UPDATE clients
+            SET name = %s,
+                website_url = COALESCE(%s, website_url),
+                source_type = %s,
+                source_path = %s,
+                source_url = %s,
+                file_format = %s,
+                field_mapping = %s::jsonb,
+                is_active = TRUE,
+                updated_at = NOW()
+            WHERE id = %s
+        """, (
+            store_name,
+            website_url,
+            source_type,
+            source_path,
+            source_url,
+            file_format,
+            json.dumps(field_mapping),
+            client_id
+        ))
 
         conn.commit()
-
-        # Trigger scraper generator
-        try:
-            cur.execute("SELECT slug, store_prefix FROM clients WHERE id = %s", (client_id,))
-            c_row = cur.fetchone()
-            store_slug = "default_slug"
-            if c_row:
-                store_slug = c_row["store_prefix"] or c_row["slug"]
-                
-            payload = {
-                "request_id": request_id,
-                "user_id": user_id,
-                "client_id": client_id,
-                "store_slug": store_slug,
-                "urls": competitor_urls
-            }
-            import threading
-            def _fire_generator(p):
-                try:
-                    requests.post("http://ai_generator:8080/api/check", json=p, timeout=10)
-                except Exception as e:
-                    print(f"Failed to auto-trigger generator: {e}")
-
-            threading.Thread(target=_fire_generator, args=(payload,)).start()
-        except Exception:
-            traceback.print_exc()
-
-        cur.close()
-        conn.close()
 
         session["status"] = "active"
 
@@ -765,11 +835,15 @@ def _save_onboarding_submission():
     except Exception as e:
         traceback.print_exc()
         conn.rollback()
-        conn.close()
         return jsonify({
             "ok": False,
             "error": f"Database error: {e}"
         }), 500
+
+    finally:
+        if cur:
+            cur.close()
+        conn.close()
 
 
 @auth_bp.route("/api/onboarding/submit", methods=["POST"])
@@ -885,6 +959,7 @@ def admin_pending_users():
             JOIN users u ON u.id = r.user_id
             WHERE r.status IN (
                 'pending_admin',
+                'scraper_generating',
                 'scraper_review'
             )
             ORDER BY r.created_at DESC
@@ -917,6 +992,7 @@ def admin_approve_user():
     user_id = data.get("user_id")
 
     conn = get_db_transaction()
+    cur = None
 
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -926,7 +1002,7 @@ def admin_approve_user():
                 SELECT id
                 FROM onboarding_requests
                 WHERE user_id = %s
-                  AND status = 'pending_admin'
+                  AND status IN ('pending_admin', 'scraper_generating', 'scraper_review')
                 ORDER BY created_at DESC
                 LIMIT 1
             """, (user_id,))
@@ -935,8 +1011,6 @@ def admin_approve_user():
 
             if not row:
                 conn.rollback()
-                cur.close()
-                conn.close()
                 return jsonify({
                     "ok": False,
                     "error": "No pending onboarding request found for this user."
@@ -946,8 +1020,6 @@ def admin_approve_user():
 
         if not request_id:
             conn.rollback()
-            cur.close()
-            conn.close()
             return jsonify({
                 "ok": False,
                 "error": "Missing request_id."
@@ -970,7 +1042,7 @@ def admin_approve_user():
                 r.status
             FROM onboarding_requests r
             WHERE r.id = %s
-              AND r.status = 'pending_admin'
+              AND r.status IN ('pending_admin', 'scraper_generating', 'scraper_review')
             LIMIT 1
         """, (request_id,))
 
@@ -978,12 +1050,43 @@ def admin_approve_user():
 
         if not onboarding_request:
             conn.rollback()
-            cur.close()
-            conn.close()
             return jsonify({
                 "ok": False,
-                "error": "Onboarding request not found or is not pending_admin."
+                "error": "Onboarding request not found or is not pending_admin/scraper_review."
             }), 404
+
+        result = provision_client_from_request(
+            conn=conn,
+            user_id=onboarding_request["user_id"],
+            request_id=onboarding_request["id"],
+            store_name=onboarding_request["requested_store_name"],
+            requested_store_slug=onboarding_request.get("requested_store_slug"),
+            company_domain=onboarding_request.get("company_domain"),
+            website_url=onboarding_request.get("website_url"),
+            source_type=onboarding_request.get("source_type") or "pending",
+            source_path=onboarding_request.get("source_path"),
+            source_url=onboarding_request.get("source_url"),
+            file_format=onboarding_request.get("file_format"),
+            field_mapping=onboarding_request.get("field_mapping") or {},
+        )
+
+        spider_names = _attach_scrapers_to_client(
+            cur=cur,
+            request_id=onboarding_request["id"],
+            client_id=result["client_id"],
+            store_prefix=result["store_prefix"],
+            admin_user_id=session["user_id"],
+        )
+
+        cur.execute("""
+            UPDATE clients
+            SET spiders_to_run = %s,
+                updated_at = NOW()
+            WHERE id = %s
+        """, (
+            spider_names,
+            result["client_id"],
+        ))
 
         cur.execute("""
             UPDATE onboarding_requests
@@ -1007,24 +1110,29 @@ def admin_approve_user():
         ))
 
         conn.commit()
-        cur.close()
-        conn.close()
 
         return jsonify({
             "ok": True,
-            "message": "User approved successfully.",
+            "message": "User approved, client provisioned and scrapers attached successfully.",
+            "client_id": result.get("client_id"),
+            "store_prefix": result.get("store_prefix"),
+            "slug": result.get("slug"),
+            "spiders_to_run": spider_names,
             "status": "onboarding_required"
         })
 
     except Exception as e:
         traceback.print_exc()
         conn.rollback()
-        conn.close()
-
         return jsonify({
             "ok": False,
             "error": str(e)
         }), 500
+
+    finally:
+        if cur:
+            cur.close()
+        conn.close()
 
 
 @auth_bp.route("/api/admin/reject_user", methods=["POST"])
@@ -1305,6 +1413,7 @@ def generate_scrapers_for_request(request_id):
         }), 403
 
     conn = get_db_transaction()
+    cur = None
 
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -1315,12 +1424,14 @@ def generate_scrapers_for_request(request_id):
                 r.user_id,
                 r.client_id,
                 r.requested_store_slug,
+                r.requested_store_name,
+                r.company_domain,
                 r.competitor_urls,
                 r.status,
                 c.slug AS client_slug,
                 c.store_prefix
             FROM onboarding_requests r
-            JOIN clients c ON c.id = r.client_id
+            LEFT JOIN clients c ON c.id = r.client_id
             WHERE r.id = %s
             LIMIT 1
         """, (request_id,))
@@ -1329,29 +1440,28 @@ def generate_scrapers_for_request(request_id):
 
         if not onboarding_request:
             conn.rollback()
-            cur.close()
-            conn.close()
             return jsonify({
                 "ok": False,
-                "error": "Onboarding request not found or client not provisioned"
+                "error": "Onboarding request not found"
             }), 404
 
-        if not onboarding_request["client_id"]:
-            conn.rollback()
-            cur.close()
-            conn.close()
-            return jsonify({
-                "ok": False,
-                "error": "Client has not been provisioned yet"
-            }), 400
-
         competitor_urls = _normalize_list(onboarding_request.get("competitor_urls") or [])
+
+        store_slug = (
+            onboarding_request.get("store_prefix")
+            or onboarding_request.get("client_slug")
+            or onboarding_request.get("requested_store_slug")
+            or _safe_slug(
+                onboarding_request.get("company_domain") or onboarding_request.get("requested_store_name"),
+                f"request_{request_id}"
+            )
+        )
 
         payload = {
             "request_id": onboarding_request["request_id"],
             "user_id": onboarding_request["user_id"],
-            "client_id": onboarding_request["client_id"],
-            "store_slug": onboarding_request["store_prefix"] or onboarding_request["client_slug"],
+            "client_id": onboarding_request.get("client_id"),
+            "store_slug": store_slug,
             "urls": competitor_urls
         }
 
@@ -1378,14 +1488,12 @@ def generate_scrapers_for_request(request_id):
                 VALUES (%s, %s, %s, NULL, 'ai_generator_request', 'failed', %s)
             """, (
                 onboarding_request["user_id"],
-                onboarding_request["client_id"],
+                onboarding_request.get("client_id"),
                 onboarding_request["request_id"],
                 str(e)
             ))
 
             conn.commit()
-            cur.close()
-            conn.close()
 
             return jsonify({
                 "ok": False,
@@ -1413,14 +1521,12 @@ def generate_scrapers_for_request(request_id):
                 VALUES (%s, %s, %s, NULL, 'ai_generator_request', 'started', %s)
             """, (
                 onboarding_request["user_id"],
-                onboarding_request["client_id"],
+                onboarding_request.get("client_id"),
                 onboarding_request["request_id"],
                 "AI scraper generator started"
             ))
 
             conn.commit()
-            cur.close()
-            conn.close()
 
             return jsonify({
                 "ok": True,
@@ -1441,14 +1547,12 @@ def generate_scrapers_for_request(request_id):
             VALUES (%s, %s, %s, NULL, 'ai_generator_request', 'failed', %s)
         """, (
             onboarding_request["user_id"],
-            onboarding_request["client_id"],
+            onboarding_request.get("client_id"),
             onboarding_request["request_id"],
             f"AI generator returned status {response.status_code}: {response.text}"
         ))
 
         conn.commit()
-        cur.close()
-        conn.close()
 
         return jsonify({
             "ok": False,
@@ -1459,12 +1563,15 @@ def generate_scrapers_for_request(request_id):
     except Exception as e:
         traceback.print_exc()
         conn.rollback()
-        conn.close()
-
         return jsonify({
             "ok": False,
             "error": str(e)
         }), 500
+
+    finally:
+        if cur:
+            cur.close()
+        conn.close()
 
 
 @auth_bp.route("/api/admin/scrapers/<int:scraper_id>/approve", methods=["POST"])
@@ -1476,6 +1583,7 @@ def approve_scraper(scraper_id):
         }), 403
 
     conn = get_db_transaction()
+    cur = None
 
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -1496,14 +1604,19 @@ def approve_scraper(scraper_id):
 
         if not row:
             conn.rollback()
-            cur.close()
-            conn.close()
             return jsonify({
                 "ok": False,
                 "error": "Scraper not found"
             }), 404
 
         client_id = row["client_id"]
+
+        if not client_id:
+            conn.rollback()
+            return jsonify({
+                "ok": False,
+                "error": "Scraper is not attached to a client yet. Approve the user first."
+            }), 400
 
         cur.execute("""
             UPDATE clients c
@@ -1522,8 +1635,6 @@ def approve_scraper(scraper_id):
         """, (client_id,))
 
         conn.commit()
-        cur.close()
-        conn.close()
 
         return jsonify({
             "ok": True,
@@ -1533,12 +1644,15 @@ def approve_scraper(scraper_id):
     except Exception as e:
         traceback.print_exc()
         conn.rollback()
-        conn.close()
-
         return jsonify({
             "ok": False,
             "error": str(e)
         }), 500
+
+    finally:
+        if cur:
+            cur.close()
+        conn.close()
 
 
 @auth_bp.route("/api/admin/scrapers", methods=["GET"])
@@ -1588,7 +1702,7 @@ def list_scrapers():
                 sr.generated_at,
                 sr.approved_at
             FROM scraper_registry sr
-            JOIN clients c ON c.id = sr.client_id
+            LEFT JOIN clients c ON c.id = sr.client_id
             WHERE {where_sql}
             ORDER BY sr.generated_at DESC
         """, params)
@@ -1719,8 +1833,8 @@ def get_error_logs():
         params = []
 
         if search:
-            where_clauses.append("error_code ILIKE %s")
-            params.append(f"%{search}%")
+            where_clauses.append("(error_code ILIKE %s OR message ILIKE %s)")
+            params.extend([f"%{search}%", f"%{search}%"])
 
         if category:
             where_clauses.append("category = %s")

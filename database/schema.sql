@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS pipeline_task_runs (
 CREATE TABLE IF NOT EXISTS scraper_registry (
     id              SERIAL PRIMARY KEY,
 
-    client_id       INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    client_id       INTEGER REFERENCES clients(id) ON DELETE CASCADE,
     request_id      INTEGER REFERENCES onboarding_requests(id) ON DELETE SET NULL,
 
     store_slug      TEXT NOT NULL,
@@ -228,7 +228,7 @@ CREATE TABLE IF NOT EXISTS scraper_registry (
     spider_module   TEXT,
     spider_path     TEXT,
 
-    output_table    TEXT NOT NULL,
+    output_table    TEXT ,
 
     status          TEXT NOT NULL DEFAULT 'generated',
 
@@ -238,8 +238,15 @@ CREATE TABLE IF NOT EXISTS scraper_registry (
     approved_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
     approved_at     TIMESTAMP,
 
-    UNIQUE(client_id, spider_name)
+
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scraper_registry_client_spider
+ON scraper_registry(client_id, spider_name)
+WHERE client_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scraper_registry_request_spider
+ON scraper_registry(request_id, spider_name)
+WHERE client_id IS NULL;
 
 -- ============================================================
 -- 10. Logi procesu generowania scraperów przez AI generator

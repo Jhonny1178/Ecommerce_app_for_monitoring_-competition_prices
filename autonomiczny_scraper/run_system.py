@@ -3,7 +3,7 @@ import psycopg2
 from urllib.parse import urlparse
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
-from typing import List
+from typing import List,Optional
 import uvicorn
 from dotenv import load_dotenv, find_dotenv
 import re
@@ -35,7 +35,7 @@ SPIDERS_OUTPUT_DIR = os.environ.get("SPIDERS_DIR", "../ecommerce_price_comparer/
 class GenerationRequest(BaseModel):
     request_id: int
     user_id: int
-    client_id: int
+    client_id: Optional[int] = None
     store_slug: str
     urls: List[str]
 
@@ -64,7 +64,7 @@ def przygotuj_srodowisko_klienta(nazwa_firmy: str):
     return katalog_klienta
 
 
-def log_scraper_step(cur, user_id: int, client_id: int, request_id: int, url: str | None, step: str, status: str, message: str = ""):
+def log_scraper_step(cur, user_id: int, client_id: Optional[int], request_id: int, url: str | None, step: str, status: str, message: str = ""):
     try:
         cur.execute("""
             INSERT INTO scraper_logs (
@@ -92,7 +92,7 @@ def log_scraper_step(cur, user_id: int, client_id: int, request_id: int, url: st
 
 def register_generated_spider(
     cur,
-    client_id: int,
+    client_id: Optional[int],
     request_id: int,
     store_slug: str,
     competitor_url: str,
@@ -101,6 +101,56 @@ def register_generated_spider(
     spider_module: str,
     spider_path: str
 ):
+    """
+    Rejestruje wygenerowany scraper.
+
+    Przed akceptacją admina:
+      client_id = NULL
+      request_id = ID wniosku
+      output_table = NULL
+
+    Po akceptacji admina auth.py przypina client_id i ustawia output_table.
+    """
+
+    if client_id is None:
+        cur.execute("""
+            INSERT INTO scraper_registry (
+                client_id,
+                request_id,
+                store_slug,
+                competitor_url,
+                competitor_name,
+                spider_name,
+                spider_module,
+                spider_path,
+                output_table,
+                status
+            )
+            VALUES (NULL, %s, %s, %s, %s, %s, %s, %s, NULL, 'generated')
+            ON CONFLICT (request_id, spider_name)
+            WHERE client_id IS NULL
+            DO UPDATE SET
+                store_slug = EXCLUDED.store_slug,
+                competitor_url = EXCLUDED.competitor_url,
+                competitor_name = EXCLUDED.competitor_name,
+                spider_module = EXCLUDED.spider_module,
+                spider_path = EXCLUDED.spider_path,
+                output_table = NULL,
+                status = 'generated',
+                last_error = NULL,
+                generated_at = NOW()
+        """, (
+            request_id,
+            store_slug,
+            competitor_url,
+            competitor_name,
+            spider_name,
+            spider_module,
+            spider_path
+        ))
+
+        return
+
     output_table = f"{store_slug}_competitors"
 
     cur.execute("""
@@ -118,6 +168,7 @@ def register_generated_spider(
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'generated')
         ON CONFLICT (client_id, spider_name)
+        WHERE client_id IS NOT NULL
         DO UPDATE SET
             request_id = EXCLUDED.request_id,
             store_slug = EXCLUDED.store_slug,
@@ -154,7 +205,7 @@ def uruchom_autonomiczny_potok(
     cur,
     request_id: int,
     user_id: int,
-    client_id: int,
+    client_id: Optional[int],
     store_slug: str,
     url_sklepu: str,
     docelowy_limit_scrapowania=None
@@ -367,7 +418,7 @@ def uruchom_autonomiczny_potok(
     return True
 
 
-def procesuj_wniosek_w_tle(request_id: int, user_id: int, client_id: int, store_slug: str, urls: List[str]):
+def procesuj_wniosek_w_tle(request_id: int, user_id: int, client_id: Optional[int], store_slug: str, urls: List[str]):
     print(f"\n[WORKER] Rozpoczynam wniosek #{request_id} dla klienta: {store_slug}")
     conn = None
     cur = None
