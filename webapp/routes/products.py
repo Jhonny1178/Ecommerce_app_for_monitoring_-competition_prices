@@ -1,8 +1,10 @@
-from flask import Blueprint, jsonify, session, request
+from flask import Blueprint, jsonify, session, request, Response
 import math
 import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
+from urllib.parse import quote, unquote
+import requests
 
 from utils import get_db, login_required
 
@@ -83,24 +85,143 @@ def _get_columns(cur, table_name: str) -> set[str]:
     return columns
 
 
+def _to_float(value):
+    if value is None:
+        return None
+
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _normalize_image_url(image_url):
+    if not image_url:
+        return None
+
+    image_url = str(image_url).strip()
+
+    if not image_url:
+        return None
+
+    if image_url.startswith("/api/image-proxy"):
+        return image_url
+
+    if image_url.startswith("//"):
+        image_url = f"https:{image_url}"
+
+    if image_url.startswith("http://"):
+        image_url = "https://" + image_url[len("http://"):]
+
+    if not image_url.startswith("https://") and not image_url.startswith("http://"):
+        return None
+
+    return image_url
+
+
+def _proxied_image_url(image_url):
+    normalized = _normalize_image_url(image_url)
+
+    if not normalized:
+        return None
+
+    if normalized.startswith("/api/image-proxy"):
+        return normalized
+
+    return f"/api/image-proxy?url={quote(normalized, safe='')}"
+
+
+def _prepare_product_for_response(product: dict) -> dict:
+    item = dict(product)
+
+    original_image = item.get("image")
+    item["image_original"] = original_image
+    item["image"] = _proxied_image_url(original_image)
+
+    return item
+
+
+def _prepare_competitor_for_response(competitor: dict) -> dict:
+    item = dict(competitor)
+
+    original_image = item.get("image")
+    item["image_original"] = original_image
+    item["image"] = _proxied_image_url(original_image)
+
+    return item
+
+
+def _flat_competitor_columns(match_columns: set[str]) -> list[str]:
+    ignored_prefixes = ("client_", "product_", "our_")
+    result = []
+
+    for col in match_columns:
+        if not (
+            col.endswith("_price")
+            or col.endswith("_url")
+            or col.endswith("_name")
+        ):
+            continue
+
+        if any(col.startswith(prefix) for prefix in ignored_prefixes):
+            continue
+
+        result.append(col)
+
+    return sorted(result)
+
+
+def _flat_competitor_price_columns(match_columns: set[str]) -> list[str]:
+    return [
+        col
+        for col in _flat_competitor_columns(match_columns)
+        if col.endswith("_price")
+    ]
+
+
+def _flat_has_competitor_sql(match_columns: set[str]):
+    price_cols = _flat_competitor_price_columns(match_columns)
+
+    if not price_cols:
+        return None
+
+    return sql.SQL(" OR ").join(
+        sql.SQL("{} IS NOT NULL").format(sql.Identifier(col))
+        for col in price_cols
+    )
+
+
 def _fetch_match_counts(cur, matches_table: str, products: list[dict]) -> dict:
     if not products or not _table_exists(cur, matches_table):
         return {}
 
     match_columns = _get_columns(cur, matches_table)
+    has_competitor_sql = _flat_has_competitor_sql(match_columns)
 
     if "product_id" in match_columns:
         product_ids = [p["id"] for p in products]
 
-        query = sql.SQL("""
-            SELECT product_id AS key, COUNT(*) AS count
-            FROM {}
-            WHERE product_id = ANY(%s)
-            GROUP BY product_id
-        """).format(sql.Identifier(matches_table))
+        if "competitor_product_id" in match_columns:
+            query = sql.SQL("""
+                SELECT product_id AS key, COUNT(*) AS count
+                FROM {}
+                WHERE product_id = ANY(%s)
+                  AND competitor_product_id IS NOT NULL
+                GROUP BY product_id
+            """).format(sql.Identifier(matches_table))
+        else:
+            query = sql.SQL("""
+                SELECT product_id AS key, COUNT(*) AS count
+                FROM {}
+                WHERE product_id = ANY(%s)
+                GROUP BY product_id
+            """).format(sql.Identifier(matches_table))
 
         cur.execute(query, (product_ids,))
         return {row["key"]: row["count"] for row in cur.fetchall()}
+
+    if has_competitor_sql is None:
+        return {}
 
     if "client_sku" in match_columns:
         skus = [p["sku"] for p in products if p.get("sku")]
@@ -109,8 +230,12 @@ def _fetch_match_counts(cur, matches_table: str, products: list[dict]) -> dict:
             SELECT client_sku AS key, COUNT(*) AS count
             FROM {}
             WHERE client_sku = ANY(%s)
+              AND ({})
             GROUP BY client_sku
-        """).format(sql.Identifier(matches_table))
+        """).format(
+            sql.Identifier(matches_table),
+            has_competitor_sql,
+        )
 
         cur.execute(query, (skus,))
         return {row["key"]: row["count"] for row in cur.fetchall()}
@@ -122,8 +247,12 @@ def _fetch_match_counts(cur, matches_table: str, products: list[dict]) -> dict:
             SELECT product_sku AS key, COUNT(*) AS count
             FROM {}
             WHERE product_sku = ANY(%s)
+              AND ({})
             GROUP BY product_sku
-        """).format(sql.Identifier(matches_table))
+        """).format(
+            sql.Identifier(matches_table),
+            has_competitor_sql,
+        )
 
         cur.execute(query, (skus,))
         return {row["key"]: row["count"] for row in cur.fetchall()}
@@ -135,8 +264,12 @@ def _fetch_match_counts(cur, matches_table: str, products: list[dict]) -> dict:
             SELECT product_name AS key, COUNT(*) AS count
             FROM {}
             WHERE product_name = ANY(%s)
+              AND ({})
             GROUP BY product_name
-        """).format(sql.Identifier(matches_table))
+        """).format(
+            sql.Identifier(matches_table),
+            has_competitor_sql,
+        )
 
         cur.execute(query, (names,))
         return {row["key"]: row["count"] for row in cur.fetchall()}
@@ -148,8 +281,12 @@ def _fetch_match_counts(cur, matches_table: str, products: list[dict]) -> dict:
             SELECT client_name AS key, COUNT(*) AS count
             FROM {}
             WHERE client_name = ANY(%s)
+              AND ({})
             GROUP BY client_name
-        """).format(sql.Identifier(matches_table))
+        """).format(
+            sql.Identifier(matches_table),
+            has_competitor_sql,
+        )
 
         cur.execute(query, (names,))
         return {row["key"]: row["count"] for row in cur.fetchall()}
@@ -191,7 +328,7 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
     match_columns = _get_columns(cur, matches_table)
     competitors_exist = _table_exists(cur, competitors_table)
 
-    # Wariant docelowy: test_matches ma product_id + competitor_product_id
+    # Wariant docelowy: matches ma product_id + competitor_product_id
     if (
         competitors_exist
         and "product_id" in match_columns
@@ -214,6 +351,7 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
             FROM {} m
             LEFT JOIN {} c ON c.id = m.competitor_product_id
             WHERE m.product_id = %s
+              AND m.competitor_product_id IS NOT NULL
             ORDER BY m.similarity_score DESC NULLS LAST
         """).format(
             sql.Identifier(matches_table),
@@ -221,10 +359,13 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
         )
 
         cur.execute(query, (product["id"],))
-        return [dict(row) for row in cur.fetchall()]
+        return [
+            _prepare_competitor_for_response(dict(row))
+            for row in cur.fetchall()
+        ]
 
-    # Wariant aktualny: test_matches jest płaską tabelą z files_connector,
-    # np. spider_dummy_price, spider_dummy_url, spider_dummy_name.
+    # Wariant aktualny: matches jest płaską tabelą z files_connector,
+    # np. jmbdesing_price, jmbdesing_url, jmbdesing_name.
     match_row = None
 
     if "client_sku" in match_columns and product.get("sku"):
@@ -277,12 +418,23 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
     match_row = dict(match_row)
     competitors = []
 
-    # Szukamy wszystkich kolumn typu:
-    # spider_dummy_price
-    # spider_dummy_url
-    # spider_dummy_name
+    # Szukamy kolumn typu:
+    # calavado_price
+    # calavado_url
+    # calavado_name
+    #
+    # Pomijamy:
+    # client_price
+    # product_price
+    # our_price
     for column_name, value in match_row.items():
         if not column_name.endswith("_price"):
+            continue
+
+        if column_name in ("client_price", "product_price", "our_price"):
+            continue
+
+        if column_name.startswith("client_") or column_name.startswith("product_") or column_name.startswith("our_"):
             continue
 
         store_name = column_name[:-6]  # usuwa końcówkę "_price"
@@ -294,16 +446,41 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
         if price is None and name is None and url is None:
             continue
 
-        competitors.append({
+        image = None
+        availability = None
+        competitor_sku = None
+
+        if competitors_exist and url:
+            try:
+                image_query = sql.SQL("""
+                    SELECT sku, image, availability
+                    FROM {}
+                    WHERE url = %s
+                    LIMIT 1
+                """).format(sql.Identifier(competitors_table))
+
+                cur.execute(image_query, (url,))
+                extra = cur.fetchone()
+
+                if extra:
+                    extra = dict(extra)
+                    competitor_sku = extra.get("sku")
+                    image = extra.get("image")
+                    availability = extra.get("availability")
+            except Exception:
+                pass
+
+        competitor = {
             "id": None,
-            "sku": None,
+            "sku": competitor_sku,
             "name": name or store_name,
             "price_normal": price,
             "price_special": None,
             "store": store_name,
-            "availability": None,
+            "shop_label": store_name,
+            "availability": availability,
             "url": url,
-            "image": None,
+            "image": image,
             "similarity_score": None,
             "price_difference": (
                 float(price) - float(product["price_normal"])
@@ -311,9 +488,227 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
                 else None
             ),
             "match_status": "matched",
-        })
+        }
+
+        competitors.append(_prepare_competitor_for_response(competitor))
 
     return competitors
+
+
+def _get_matched_products_filter(cur, matches_table: str):
+    if not _table_exists(cur, matches_table):
+        return sql.SQL("FALSE")
+
+    match_columns = _get_columns(cur, matches_table)
+    has_competitor_sql = _flat_has_competitor_sql(match_columns)
+
+    if "product_id" in match_columns:
+        if "competitor_product_id" in match_columns:
+            return sql.SQL("""
+                p.id IN (
+                    SELECT m.product_id
+                    FROM {} m
+                    WHERE m.competitor_product_id IS NOT NULL
+                )
+            """).format(sql.Identifier(matches_table))
+
+        return sql.SQL("""
+            p.id IN (
+                SELECT m.product_id
+                FROM {} m
+            )
+        """).format(sql.Identifier(matches_table))
+
+    if has_competitor_sql is not None and "client_sku" in match_columns:
+        return sql.SQL("""
+            p.sku IN (
+                SELECT m.client_sku
+                FROM {} m
+                WHERE {}
+            )
+        """).format(sql.Identifier(matches_table), has_competitor_sql)
+
+    if has_competitor_sql is not None and "product_sku" in match_columns:
+        return sql.SQL("""
+            p.sku IN (
+                SELECT m.product_sku
+                FROM {} m
+                WHERE {}
+            )
+        """).format(sql.Identifier(matches_table), has_competitor_sql)
+
+    if has_competitor_sql is not None and "product_name" in match_columns:
+        return sql.SQL("""
+            p.name IN (
+                SELECT m.product_name
+                FROM {} m
+                WHERE {}
+            )
+        """).format(sql.Identifier(matches_table), has_competitor_sql)
+
+    if has_competitor_sql is not None and "client_name" in match_columns:
+        return sql.SQL("""
+            p.name IN (
+                SELECT m.client_name
+                FROM {} m
+                WHERE {}
+            )
+        """).format(sql.Identifier(matches_table), has_competitor_sql)
+
+    return sql.SQL("FALSE")
+
+
+def _get_match_analysis_summary(cur, matches_table: str) -> dict:
+    summary = {
+        "matched_products": 0,
+        "total_competitor_matches": 0,
+        "our_price_lower_count": 0,
+        "our_price_higher_count": 0,
+        "same_price_count": 0,
+        "avg_difference_competitor_minus_ours": None,
+        "max_saving_when_ours_cheaper": None,
+        "max_loss_when_ours_expensive": None,
+    }
+
+    if not _table_exists(cur, matches_table):
+        return summary
+
+    match_columns = _get_columns(cur, matches_table)
+    competitor_price_columns = _flat_competitor_price_columns(match_columns)
+
+    if not competitor_price_columns:
+        return summary
+
+    client_price_col = None
+
+    if "client_price" in match_columns:
+        client_price_col = "client_price"
+    elif "product_price" in match_columns:
+        client_price_col = "product_price"
+    elif "our_price" in match_columns:
+        client_price_col = "our_price"
+
+    if not client_price_col:
+        return summary
+
+    select_columns = [client_price_col] + competitor_price_columns
+
+    query = sql.SQL("SELECT {} FROM {}").format(
+        sql.SQL(", ").join(sql.Identifier(col) for col in select_columns),
+        sql.Identifier(matches_table),
+    )
+
+    cur.execute(query)
+    rows = cur.fetchall()
+
+    matched_product_count = 0
+    total_matches = 0
+    diffs = []
+    savings = []
+    losses = []
+    our_lower = 0
+    our_higher = 0
+    same_price = 0
+
+    for row in rows:
+        row = dict(row)
+        client_price = _to_float(row.get(client_price_col))
+
+        row_has_match = False
+
+        for col in competitor_price_columns:
+            competitor_price = _to_float(row.get(col))
+
+            if competitor_price is None or client_price is None:
+                continue
+
+            row_has_match = True
+            total_matches += 1
+
+            diff = competitor_price - client_price
+            diffs.append(diff)
+
+            if diff > 0:
+                # konkurencja drożej, więc nasza cena jest niższa
+                our_lower += 1
+                savings.append(diff)
+            elif diff < 0:
+                # konkurencja taniej, więc nasza cena jest wyższa
+                our_higher += 1
+                losses.append(abs(diff))
+            else:
+                same_price += 1
+
+        if row_has_match:
+            matched_product_count += 1
+
+    summary["matched_products"] = matched_product_count
+    summary["total_competitor_matches"] = total_matches
+    summary["our_price_lower_count"] = our_lower
+    summary["our_price_higher_count"] = our_higher
+    summary["same_price_count"] = same_price
+    summary["avg_difference_competitor_minus_ours"] = round(sum(diffs) / len(diffs), 2) if diffs else None
+    summary["max_saving_when_ours_cheaper"] = round(max(savings), 2) if savings else None
+    summary["max_loss_when_ours_expensive"] = round(max(losses), 2) if losses else None
+
+    return summary
+
+
+@products_bp.route("/api/image-proxy")
+@login_required
+def api_image_proxy():
+    raw_url = request.args.get("url", "").strip()
+
+    if not raw_url:
+        return jsonify({
+            "ok": False,
+            "error": "Brak parametru url"
+        }), 400
+
+    image_url = _normalize_image_url(unquote(raw_url))
+
+    if not image_url:
+        return jsonify({
+            "ok": False,
+            "error": "Nieprawidłowy URL obrazka"
+        }), 400
+
+    try:
+        response = requests.get(
+            image_url,
+            timeout=12,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0 Safari/537.36"
+                ),
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            },
+        )
+
+        if response.status_code >= 400:
+            return jsonify({
+                "ok": False,
+                "error": f"Nie udało się pobrać obrazka. Status={response.status_code}"
+            }), response.status_code
+
+        content_type = response.headers.get("Content-Type", "image/jpeg")
+
+        return Response(
+            response.content,
+            mimetype=content_type,
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e)
+        }), 500
 
 
 @products_bp.route("/api/products")
@@ -356,16 +751,18 @@ def api_products():
 
     offset = (page - 1) * per_page
 
-    where_sql = sql.SQL("")
+    where_parts = []
     params = []
 
     if search_query:
-        where_sql = sql.SQL("""
-            WHERE name ILIKE %s
-               OR sku ILIKE %s
-               OR category ILIKE %s
-               OR manufacturer ILIKE %s
-        """)
+        where_parts.append(sql.SQL("""
+            (
+                p.name ILIKE %s
+                OR p.sku ILIKE %s
+                OR p.category ILIKE %s
+                OR p.manufacturer ILIKE %s
+            )
+        """))
         params.extend([
             f"%{search_query}%",
             f"%{search_query}%",
@@ -392,9 +789,16 @@ def api_products():
                 }
             })
 
+        if matched_only:
+            where_parts.append(_get_matched_products_filter(cursor, matches_table))
+
+        where_sql = sql.SQL("")
+        if where_parts:
+            where_sql = sql.SQL("WHERE ") + sql.SQL(" AND ").join(where_parts)
+
         count_query = sql.SQL("""
-            SELECT COUNT(id) AS total
-            FROM {}
+            SELECT COUNT(p.id) AS total
+            FROM {} p
             {}
         """).format(
             sql.Identifier(products_table),
@@ -406,21 +810,21 @@ def api_products():
 
         query = sql.SQL("""
             SELECT
-                id,
-                sku,
-                name,
-                size,
-                color,
-                manufacturer,
-                category,
-                price_normal,
-                price_special,
-                store,
-                availability,
-                url,
-                image,
-                description
-            FROM {}
+                p.id,
+                p.sku,
+                p.name,
+                p.size,
+                p.color,
+                p.manufacturer,
+                p.category,
+                p.price_normal,
+                p.price_special,
+                p.store,
+                p.availability,
+                p.url,
+                p.image,
+                p.description
+            FROM {} p
             {}
             ORDER BY {} {}
             LIMIT %s OFFSET %s
@@ -435,12 +839,7 @@ def api_products():
         products = [dict(row) for row in cursor.fetchall()]
 
         products = _add_match_counts(cursor, matches_table, products)
-
-        if matched_only:
-            products = [
-                product for product in products
-                if product.get("competitors_count", 0) > 0
-            ]
+        products = [_prepare_product_for_response(product) for product in products]
 
         return jsonify({
             "ok": True,
@@ -523,7 +922,7 @@ def api_product_detail(product_id):
                 "error": "Produkt nie został znaleziony"
             }), 404
 
-        product = dict(product)
+        product = _prepare_product_for_response(dict(product))
 
         competitors = _fetch_competitors_for_product(
             cursor,
@@ -601,7 +1000,16 @@ def api_stats():
             "total_stores": 0,
         }
 
-        matched_products = 0
+        match_summary = {
+            "matched_products": 0,
+            "total_competitor_matches": 0,
+            "our_price_lower_count": 0,
+            "our_price_higher_count": 0,
+            "same_price_count": 0,
+            "avg_difference_competitor_minus_ours": None,
+            "max_saving_when_ours_cheaper": None,
+            "max_loss_when_ours_expensive": None,
+        }
 
         if _table_exists(cursor, products_table):
             product_summary_query = sql.SQL("""
@@ -630,38 +1038,13 @@ def api_stats():
             competitor_summary = dict(cursor.fetchone())
 
         if _table_exists(cursor, matches_table):
-            match_columns = _get_columns(cursor, matches_table)
-
-            if "product_id" in match_columns:
-                query = sql.SQL("""
-                    SELECT COUNT(DISTINCT product_id) AS matched_products
-                    FROM {}
-                """).format(sql.Identifier(matches_table))
-                cursor.execute(query)
-                matched_products = cursor.fetchone()["matched_products"] or 0
-
-            elif "client_sku" in match_columns:
-                query = sql.SQL("""
-                    SELECT COUNT(DISTINCT client_sku) AS matched_products
-                    FROM {}
-                """).format(sql.Identifier(matches_table))
-                cursor.execute(query)
-                matched_products = cursor.fetchone()["matched_products"] or 0
-
-            elif "product_sku" in match_columns:
-                query = sql.SQL("""
-                    SELECT COUNT(DISTINCT product_sku) AS matched_products
-                    FROM {}
-                """).format(sql.Identifier(matches_table))
-                cursor.execute(query)
-                matched_products = cursor.fetchone()["matched_products"] or 0
+            match_summary = _get_match_analysis_summary(cursor, matches_table)
 
         summary = {
-            "total": product_summary.get("total") or 0,
+            # Dashboard ma pokazywać produkty realnie zmatchowane.
+            "total": match_summary.get("matched_products") or 0,
 
-            # Frontend teraz pokazuje pole avg_price_normal jako "Średnia cena".
-            # Ustawiamy tu średnią cenę konkurencji, bo to jest ważniejsze analitycznie.
-            # Jeśli nie ma konkurencji, będzie null -> frontend pokaże "Brak danych".
+            # Zachowuję nazwę pola, bo frontend już jej używa.
             "avg_price_normal": competitor_summary.get("avg_competitor_price"),
 
             "avg_price_special": None,
@@ -673,7 +1056,15 @@ def api_stats():
             "avg_client_price": product_summary.get("avg_price_normal"),
             "total_competitor_products": competitor_summary.get("total_competitor_products") or 0,
             "avg_competitor_price": competitor_summary.get("avg_competitor_price"),
-            "matched_products": matched_products,
+
+            "matched_products": match_summary.get("matched_products") or 0,
+            "total_competitor_matches": match_summary.get("total_competitor_matches") or 0,
+            "our_price_lower_count": match_summary.get("our_price_lower_count") or 0,
+            "our_price_higher_count": match_summary.get("our_price_higher_count") or 0,
+            "same_price_count": match_summary.get("same_price_count") or 0,
+            "avg_difference_competitor_minus_ours": match_summary.get("avg_difference_competitor_minus_ours"),
+            "max_saving_when_ours_cheaper": match_summary.get("max_saving_when_ours_cheaper"),
+            "max_loss_when_ours_expensive": match_summary.get("max_loss_when_ours_expensive"),
         }
 
         by_category = []

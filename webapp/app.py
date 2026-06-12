@@ -33,66 +33,240 @@ ALLOWED_SORTS = {
 @login_required
 def api_stats():
     prefix = session.get("store_prefix", "default")
+
     products_table = f"{prefix}_products"
-    report_table   = f"{prefix}_report"
+    competitors_table = f"{prefix}_competitors"
+    matches_table = f"{prefix}_matches"
+
+    def ident(name):
+        return '"' + str(name).replace('"', '""') + '"'
+
+    def table_exists(cur, table_name):
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+            ) AS exists
+        """, (table_name,))
+        return bool(cur.fetchone()["exists"])
+
+    def get_columns(cur, table_name):
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = %s
+        """, (table_name,))
+        return {row["column_name"] for row in cur.fetchall()}
+
+    def to_float(value):
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except Exception:
+            return None
 
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cur.execute(f"""
-            SELECT 
-                COUNT(*) AS total,
-                COUNT(DISTINCT category) AS total_categories,
-                COUNT(DISTINCT store) AS total_stores,
-                COUNT(DISTINCT manufacturer) AS total_manufacturers,
-                ROUND(AVG(price_normal)::numeric, 2) AS avg_price_normal,
-                ROUND(AVG(price_special)::numeric, 2) AS avg_price_special,
-                ROUND(AVG(price_normal - price_special)::numeric, 2) AS avg_discount
-            FROM {products_table}
-        """)
-        summary = cur.fetchone() or {}
+        product_summary = {
+            "total": 0,
+            "avg_client_price": None,
+            "total_categories": 0,
+            "total_manufacturers": 0,
+        }
 
-        cur.execute(f"""
-            SELECT category, COUNT(*) as count, 
-                   ROUND(AVG(price_normal)::numeric, 2) as avg_price
-            FROM {products_table}
-            GROUP BY category ORDER BY count DESC
-        """)
-        by_category = cur.fetchall()
+        competitor_summary = {
+            "total_competitor_products": 0,
+            "avg_competitor_price": None,
+            "total_stores": 0,
+        }
 
-        cur.execute(f"""
-            SELECT store, COUNT(*) as count 
-            FROM {products_table} 
-            GROUP BY store ORDER BY count DESC
-        """)
-        by_store = cur.fetchall()
+        match_summary = {
+            "matched_products": 0,
+            "total_competitor_matches": 0,
+            "our_price_lower_count": 0,
+            "our_price_higher_count": 0,
+            "same_price_count": 0,
+            "avg_difference_competitor_minus_ours": None,
+            "max_saving_when_ours_cheaper": None,
+            "max_loss_when_ours_expensive": None,
+        }
 
-        cur.execute(f"""
-            SELECT availability, COUNT(*) as count 
-            FROM {products_table} 
-            GROUP BY availability
-        """)
-        by_availability = cur.fetchall()
+        by_category = []
+        by_store = []
+        by_availability = []
 
-        report_count = 0
-        cur.execute("""
-            SELECT EXISTS(SELECT FROM information_schema.tables 
-                          WHERE table_name = %s)
-        """, (report_table,))
-        if cur.fetchone()['exists']:
-            cur.execute(f"SELECT COUNT(*) FROM {report_table}")
-            report_count = cur.fetchone()[0]
+        if table_exists(cur, products_table):
+            cur.execute(f"""
+                SELECT
+                    COUNT(*) AS total,
+                    ROUND(AVG(price_normal)::numeric, 2) AS avg_client_price,
+                    COUNT(DISTINCT category) AS total_categories,
+                    COUNT(DISTINCT manufacturer) AS total_manufacturers
+                FROM {ident(products_table)}
+            """)
+            product_summary = dict(cur.fetchone() or product_summary)
 
-        cur.close(); conn.close()
+            cur.execute(f"""
+                SELECT
+                    category,
+                    COUNT(*) AS count,
+                    ROUND(AVG(price_normal)::numeric, 2) AS avg_price
+                FROM {ident(products_table)}
+                GROUP BY category
+                ORDER BY count DESC
+                LIMIT 8
+            """)
+            by_category = cur.fetchall()
+
+            cur.execute(f"""
+                SELECT
+                    availability,
+                    COUNT(*) AS count
+                FROM {ident(products_table)}
+                GROUP BY availability
+                ORDER BY count DESC
+            """)
+            by_availability = cur.fetchall()
+
+        if table_exists(cur, competitors_table):
+            cur.execute(f"""
+                SELECT
+                    COUNT(*) AS total_competitor_products,
+                    ROUND(AVG(price_normal)::numeric, 2) AS avg_competitor_price,
+                    COUNT(DISTINCT store) AS total_stores
+                FROM {ident(competitors_table)}
+            """)
+            competitor_summary = dict(cur.fetchone() or competitor_summary)
+
+            cur.execute(f"""
+                SELECT
+                    store,
+                    COUNT(*) AS count
+                FROM {ident(competitors_table)}
+                GROUP BY store
+                ORDER BY count DESC
+            """)
+            by_store = cur.fetchall()
+
+        if table_exists(cur, matches_table):
+            match_columns = get_columns(cur, matches_table)
+
+            competitor_price_columns = [
+                col for col in match_columns
+                if col.endswith("_price")
+                and not col.startswith("client_")
+                and not col.startswith("product_")
+                and not col.startswith("our_")
+            ]
+
+            client_price_col = None
+            if "client_price" in match_columns:
+                client_price_col = "client_price"
+            elif "product_price" in match_columns:
+                client_price_col = "product_price"
+            elif "our_price" in match_columns:
+                client_price_col = "our_price"
+
+            if client_price_col and competitor_price_columns:
+                selected_cols = [client_price_col] + competitor_price_columns
+
+                cur.execute(f"""
+                    SELECT {", ".join(ident(col) for col in selected_cols)}
+                    FROM {ident(matches_table)}
+                """)
+
+                rows = cur.fetchall()
+
+                matched_products = 0
+                total_competitor_matches = 0
+                our_price_lower_count = 0
+                our_price_higher_count = 0
+                same_price_count = 0
+                diffs = []
+                savings = []
+                losses = []
+
+                for row in rows:
+                    row = dict(row)
+                    client_price = to_float(row.get(client_price_col))
+                    row_has_match = False
+
+                    for col in competitor_price_columns:
+                        competitor_price = to_float(row.get(col))
+
+                        if client_price is None or competitor_price is None:
+                            continue
+
+                        row_has_match = True
+                        total_competitor_matches += 1
+
+                        diff = competitor_price - client_price
+                        diffs.append(diff)
+
+                        if diff > 0:
+                            # konkurencja drożej, czyli my jesteśmy tańsi
+                            our_price_lower_count += 1
+                            savings.append(diff)
+                        elif diff < 0:
+                            # konkurencja taniej, czyli my jesteśmy drożsi
+                            our_price_higher_count += 1
+                            losses.append(abs(diff))
+                        else:
+                            same_price_count += 1
+
+                    if row_has_match:
+                        matched_products += 1
+
+                match_summary = {
+                    "matched_products": matched_products,
+                    "total_competitor_matches": total_competitor_matches,
+                    "our_price_lower_count": our_price_lower_count,
+                    "our_price_higher_count": our_price_higher_count,
+                    "same_price_count": same_price_count,
+                    "avg_difference_competitor_minus_ours": round(sum(diffs) / len(diffs), 2) if diffs else None,
+                    "max_saving_when_ours_cheaper": round(max(savings), 2) if savings else None,
+                    "max_loss_when_ours_expensive": round(max(losses), 2) if losses else None,
+                }
+
+        summary = {
+            "total": match_summary["matched_products"],
+            "avg_price_normal": competitor_summary.get("avg_competitor_price"),
+            "avg_price_special": None,
+
+            "matched_products": match_summary["matched_products"],
+            "total_competitor_matches": match_summary["total_competitor_matches"],
+            "our_price_lower_count": match_summary["our_price_lower_count"],
+            "our_price_higher_count": match_summary["our_price_higher_count"],
+            "same_price_count": match_summary["same_price_count"],
+            "avg_difference_competitor_minus_ours": match_summary["avg_difference_competitor_minus_ours"],
+            "max_saving_when_ours_cheaper": match_summary["max_saving_when_ours_cheaper"],
+            "max_loss_when_ours_expensive": match_summary["max_loss_when_ours_expensive"],
+
+            "total_client_products": product_summary.get("total") or 0,
+            "avg_client_price": product_summary.get("avg_client_price"),
+            "total_categories": product_summary.get("total_categories") or 0,
+            "total_manufacturers": product_summary.get("total_manufacturers") or 0,
+
+            "total_competitor_products": competitor_summary.get("total_competitor_products") or 0,
+            "avg_competitor_price": competitor_summary.get("avg_competitor_price"),
+            "total_stores": competitor_summary.get("total_stores") or 0,
+        }
+
+        cur.close()
+        conn.close()
 
         return jsonify({
             "ok": True,
-            "summary": dict(summary),
+            "summary": summary,
             "by_category": [dict(r) for r in by_category],
             "by_store": [dict(r) for r in by_store],
             "by_availability": [dict(r) for r in by_availability],
-            "report_rows": report_count
+            "report_rows": match_summary["matched_products"],
         })
 
     except Exception as e:
