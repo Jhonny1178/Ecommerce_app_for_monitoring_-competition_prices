@@ -27,7 +27,7 @@ DB_CONFIG = {
 # ============================================================
 # Każdy scraper zakończy się po 200 zescrapowanych itemach.
 # Później produkcyjnie możesz dać np. 0 albo zmienić env.
-SCRAPY_ITEM_LIMIT = int(os.environ.get("SCRAPY_ITEM_LIMIT", "200"))
+SCRAPY_ITEM_LIMIT = int(os.environ.get("SCRAPY_ITEM_LIMIT", "1000"))
 
 # Na pokaz lepiej wyczyścić tabelę competitors przed scrapowaniem,
 # żeby matching nie mielił setek tysięcy starych rekordów.
@@ -729,7 +729,7 @@ ACTIVE_CLIENTS = load_clients_for_dag_parse()
 with DAG(
     dag_id="multi_client_pipeline",
     start_date=datetime(2026, 5, 1),
-    schedule="0 * * * *",
+    schedule="0 9 * * *",
     catchup=False,
     max_active_runs=1,
     default_args=default_args,
