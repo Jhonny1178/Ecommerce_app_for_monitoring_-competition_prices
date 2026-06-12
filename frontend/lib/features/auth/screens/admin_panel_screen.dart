@@ -1012,7 +1012,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   }
 
                   final status = req['status']?.toString() ?? '-';
-                  final canModerate = status == 'pending_admin';
+                  final canModerate = status == 'pending_admin' || status == 'onboarding_required';
 
                   return DataRow(
                     onSelectChanged: (_) => _showRegRequestModal(req),
@@ -1165,7 +1165,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         }
 
         final status = req['status']?.toString() ?? '-';
-        final canModerate = status == 'pending_admin';
+        final canModerate = status == 'pending_admin' || status == 'onboarding_required';
 
         return Dialog(
           backgroundColor: colorScheme.surface,
@@ -1255,36 +1255,55 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
                 const SizedBox(height: 24),
 
-                if (canModerate)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () => _rejectRegistrationRequest(
-                          req,
-                          closeDialog: true,
-                        ),
-                        icon: const Icon(Icons.close),
-                        label: const Text('Odrzuć'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: colorScheme.error,
-                        ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => AdminUserDetailsScreen(userId: req['user_id'] ?? req['id']),
+                        )).then((_) {
+                          _fetchPendingUsers();
+                          _fetchStores();
+                          _fetchRegRequests();
+                        });
+                      },
+                      icon: const Icon(Icons.list_alt),
+                      label: const Text('Szczegóły i logi scrapera'),
+                    ),
+                    if (canModerate)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => _rejectRegistrationRequest(
+                              req,
+                              closeDialog: true,
+                            ),
+                            icon: const Icon(Icons.close),
+                            label: const Text('Odrzuć'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: colorScheme.error,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: () => _approveRegistrationRequest(
+                              req,
+                              closeDialog: true,
+                            ),
+                            icon: const Icon(Icons.check),
+                            label: const Text('Zatwierdź'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: colorScheme.primary,
+                              foregroundColor: colorScheme.onPrimary,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        onPressed: () => _approveRegistrationRequest(
-                          req,
-                          closeDialog: true,
-                        ),
-                        icon: const Icon(Icons.check),
-                        label: const Text('Zatwierdź'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: colorScheme.primary,
-                          foregroundColor: colorScheme.onPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
+                  ],
+                ),
               ],
             ),
           ),

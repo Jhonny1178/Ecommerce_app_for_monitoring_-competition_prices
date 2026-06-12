@@ -1005,6 +1005,7 @@ def admin_pending_users():
             FROM onboarding_requests r
             JOIN users u ON u.id = r.user_id
             WHERE r.status IN (
+                'onboarding_required',
                 'pending_admin',
                 'scraper_generating',
                 'scraper_review'
@@ -1049,7 +1050,7 @@ def admin_approve_user():
                 SELECT id
                 FROM onboarding_requests
                 WHERE user_id = %s
-                  AND status IN ('pending_admin', 'scraper_generating', 'scraper_review')
+                  AND status IN ('onboarding_required', 'pending_admin', 'scraper_generating', 'scraper_review')
                 ORDER BY created_at DESC
                 LIMIT 1
             """, (user_id,))
@@ -1089,7 +1090,7 @@ def admin_approve_user():
                 r.status
             FROM onboarding_requests r
             WHERE r.id = %s
-              AND r.status IN ('pending_admin', 'scraper_generating', 'scraper_review')
+              AND r.status IN ('onboarding_required', 'pending_admin', 'scraper_generating', 'scraper_review')
             LIMIT 1
         """, (request_id,))
 

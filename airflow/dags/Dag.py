@@ -27,7 +27,7 @@ DB_CONFIG = {
 # ============================================================
 # Każdy scraper zakończy się po 200 zescrapowanych itemach.
 # Później produkcyjnie możesz dać np. 0 albo zmienić env.
-SCRAPY_ITEM_LIMIT = int(os.environ.get("SCRAPY_ITEM_LIMIT", "1000"))
+SCRAPY_ITEM_LIMIT = int(os.environ.get("SCRAPY_ITEM_LIMIT", "500"))
 
 # Na pokaz lepiej wyczyścić tabelę competitors przed scrapowaniem,
 # żeby matching nie mielił setek tysięcy starych rekordów.
