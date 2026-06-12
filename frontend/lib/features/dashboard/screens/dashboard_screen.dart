@@ -532,87 +532,513 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+   int _asInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value.toString()) ?? 0;
+  }
+
+  num? _asNum(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value;
+    return num.tryParse(value.toString());
+  }
+
+  String _formatNumber(dynamic value) {
+    final number = _asInt(value);
+    return number.toString();
+  }
+
+  String _formatMoney(dynamic value) {
+    final number = _asNum(value);
+
+    if (number == null) {
+      return 'Brak danych';
+    }
+
+    return '${number.toStringAsFixed(2)} zł';
+  }
+
+  String _formatSignedMoney(dynamic value) {
+    final number = _asNum(value);
+
+    if (number == null) {
+      return 'Brak danych';
+    }
+
+    if (number > 0) {
+      return '+${number.toStringAsFixed(2)} zł';
+    }
+
+    if (number < 0) {
+      return '${number.toStringAsFixed(2)} zł';
+    }
+
+    return '0.00 zł';
+  }
+
   Widget _buildKpiSection(ColorScheme colorScheme) {
-    final totalProducts = _stats['total']?.toString() ?? '0';
+    final matchedProducts = _asInt(_stats['matched_products'] ?? _stats['total']);
+    final totalCompetitorMatches = _asInt(_stats['total_competitor_matches']);
+    final totalStores = _asInt(_stats['total_stores']);
+    final totalClientProducts = _asInt(_stats['total_client_products']);
+    final totalCompetitorProducts = _asInt(_stats['total_competitor_products']);
 
-    final avgPrice = _stats['avg_price_normal'] != null
-        ? '${_stats['avg_price_normal']} zł'
-        : 'Brak danych';
+    final ourCheaper = _asInt(_stats['our_price_lower_count']);
+    final ourMoreExpensive = _asInt(_stats['our_price_higher_count']);
+    final samePrice = _asInt(_stats['same_price_count']);
 
-    final totalStores = _stats['total_stores']?.toString() ?? '0';
+    final avgClientPrice = _formatMoney(_stats['avg_client_price']);
+    final avgCompetitorPrice = _formatMoney(_stats['avg_competitor_price']);
+    final avgDiff = _formatSignedMoney(_stats['avg_difference_competitor_minus_ours']);
+    final maxSaving = _formatMoney(_stats['max_saving_when_ours_cheaper']);
+    final maxLoss = _formatMoney(_stats['max_loss_when_ours_expensive']);
 
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _buildBigKpiCard(
+                title: 'Zmatchowane produkty',
+                value: _formatNumber(matchedProducts),
+                subtitle: 'produkty z realnym dopasowaniem',
+                icon: Icons.link,
+                colorScheme: colorScheme,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildBigKpiCard(
+                title: 'Dopasowania cen',
+                value: _formatNumber(totalCompetitorMatches),
+                subtitle: 'porównania z konkurencją',
+                icon: Icons.compare_arrows,
+                colorScheme: colorScheme,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildBigKpiCard(
+                title: 'Monitorowane sklepy',
+                value: _formatNumber(totalStores),
+                subtitle: 'aktywni konkurenci',
+                icon: Icons.storefront,
+                colorScheme: colorScheme,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildBigKpiCard(
+                title: 'Średnia cena rynku',
+                value: avgCompetitorPrice,
+                subtitle: 'średnia cena konkurencji',
+                icon: Icons.payments_outlined,
+                colorScheme: colorScheme,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 7,
+              child: _buildPricePositionPanel(
+                colorScheme: colorScheme,
+                ourCheaper: ourCheaper,
+                ourMoreExpensive: ourMoreExpensive,
+                samePrice: samePrice,
+                avgDiff: avgDiff,
+              ),
+            ),
+            const SizedBox(width: 20),
+            Expanded(
+              flex: 5,
+              child: _buildMarketSnapshotPanel(
+                colorScheme: colorScheme,
+                totalClientProducts: totalClientProducts,
+                totalCompetitorProducts: totalCompetitorProducts,
+                avgClientPrice: avgClientPrice,
+                avgCompetitorPrice: avgCompetitorPrice,
+                maxSaving: maxSaving,
+                maxLoss: maxLoss,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBigKpiCard({
+    required String title,
+    required String value,
+    required String subtitle,
+    required IconData icon,
+    required ColorScheme colorScheme,
+  }) {
+    return Container(
+      height: 165,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withOpacity(0.35),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.035),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: colorScheme.onPrimaryContainer,
+                  size: 22,
+                ),
+              ),
+              const Spacer(),
+              Icon(
+                Icons.trending_up,
+                color: colorScheme.primary.withOpacity(0.75),
+                size: 20,
+              ),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            title,
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.w800,
+              height: 1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPricePositionPanel({
+    required ColorScheme colorScheme,
+    required int ourCheaper,
+    required int ourMoreExpensive,
+    required int samePrice,
+    required String avgDiff,
+  }) {
+    final total = ourCheaper + ourMoreExpensive + samePrice;
+
+    double percent(int value) {
+      if (total == 0) return 0;
+      return value / total;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withOpacity(0.65),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withOpacity(0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.analytics_outlined, color: colorScheme.primary),
+              const SizedBox(width: 10),
+              const Text(
+                'Pozycja cenowa względem rynku',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Analiza na podstawie tabeli matches: dodatnia różnica oznacza, że konkurencja jest droższa.',
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _buildPriceBar(
+            colorScheme: colorScheme,
+            label: 'Nasza cena niższa',
+            value: ourCheaper,
+            percent: percent(ourCheaper),
+            icon: Icons.south_west,
+          ),
+          const SizedBox(height: 16),
+          _buildPriceBar(
+            colorScheme: colorScheme,
+            label: 'Nasza cena wyższa',
+            value: ourMoreExpensive,
+            percent: percent(ourMoreExpensive),
+            icon: Icons.north_east,
+          ),
+          const SizedBox(height: 16),
+          _buildPriceBar(
+            colorScheme: colorScheme,
+            label: 'Cena taka sama',
+            value: samePrice,
+            percent: percent(samePrice),
+            icon: Icons.drag_handle,
+          ),
+          const SizedBox(height: 24),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: colorScheme.surface,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.show_chart, color: colorScheme.primary),
+                const SizedBox(width: 12),
+                Text(
+                  'Średnia różnica rynku:',
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  avgDiff,
+                  style: TextStyle(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPriceBar({
+    required ColorScheme colorScheme,
+    required String label,
+    required int value,
+    required double percent,
+    required IconData icon,
+  }) {
     return Row(
       children: [
-        Expanded(
-          child: _buildKpiCard(
-            'Produkty w bazie',
-            totalProducts,
-            '',
-            colorScheme,
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(
+            icon,
+            color: colorScheme.onPrimaryContainer,
+            size: 20,
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 14),
         Expanded(
-          child: _buildKpiCard(
-            'Średnia cena',
-            avgPrice,
-            '',
-            colorScheme,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildKpiCard(
-            'Monitorowane sklepy',
-            totalStores,
-            '',
-            colorScheme,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    value.toString(),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: percent.clamp(0.0, 1.0),
+                  minHeight: 9,
+                  backgroundColor: colorScheme.surface,
+                  color: colorScheme.primary,
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildKpiCard(
-    String title,
-    String value,
-    String hint,
-    ColorScheme colorScheme,
-  ) {
+  Widget _buildMarketSnapshotPanel({
+    required ColorScheme colorScheme,
+    required int totalClientProducts,
+    required int totalCompetitorProducts,
+    required String avgClientPrice,
+    required String avgCompetitorPrice,
+    required String maxSaving,
+    required String maxLoss,
+  }) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
+        color: colorScheme.primaryContainer.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: colorScheme.primary.withOpacity(0.12),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-              color: colorScheme.onSurfaceVariant,
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Center(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
+          Row(
+            children: [
+              Icon(Icons.insights, color: colorScheme.onPrimaryContainer),
+              const SizedBox(width: 10),
+              Text(
+                'Szybki obraz rynku',
+                style: TextStyle(
+                  color: colorScheme.onPrimaryContainer,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 16),
-          Center(
+          const SizedBox(height: 20),
+          _buildSnapshotRow(
+            colorScheme,
+            'Produkty klienta',
+            totalClientProducts.toString(),
+            Icons.inventory_2_outlined,
+          ),
+          _buildSnapshotRow(
+            colorScheme,
+            'Produkty konkurencji',
+            totalCompetitorProducts.toString(),
+            Icons.store_outlined,
+          ),
+          _buildSnapshotRow(
+            colorScheme,
+            'Średnia cena klienta',
+            avgClientPrice,
+            Icons.sell_outlined,
+          ),
+          _buildSnapshotRow(
+            colorScheme,
+            'Średnia cena konkurencji',
+            avgCompetitorPrice,
+            Icons.payments_outlined,
+          ),
+          const SizedBox(height: 12),
+          Divider(color: colorScheme.onPrimaryContainer.withOpacity(0.2)),
+          const SizedBox(height: 12),
+          _buildSnapshotRow(
+            colorScheme,
+            'Największa przewaga cenowa',
+            maxSaving,
+            Icons.trending_down,
+          ),
+          _buildSnapshotRow(
+            colorScheme,
+            'Największe ryzyko cenowe',
+            maxLoss,
+            Icons.warning_amber_rounded,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSnapshotRow(
+    ColorScheme colorScheme,
+    String label,
+    String value,
+    IconData icon,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: colorScheme.onPrimaryContainer.withOpacity(0.8),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
             child: Text(
-              hint,
+              label,
               style: TextStyle(
-                color: colorScheme.onSurfaceVariant,
-                fontSize: 12,
+                color: colorScheme.onPrimaryContainer.withOpacity(0.75),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
               ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: colorScheme.onPrimaryContainer,
+              fontWeight: FontWeight.w900,
+              fontSize: 15,
             ),
           ),
         ],

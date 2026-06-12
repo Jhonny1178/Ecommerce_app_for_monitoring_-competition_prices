@@ -273,106 +273,167 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   Widget _buildCompetitorsSection(ColorScheme colorScheme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          "Ceny u konkurencji",
-          style: GoogleFonts.overpass(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Text(
+        "Ceny u konkurencji",
+        style: GoogleFonts.overpass(
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
         ),
-        const SizedBox(height: 16),
-        _competitors.isEmpty
-            ? Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Text("Brak danych o konkurencji."),
-              )
-            : ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _competitors.length,
-                itemBuilder: (context, index) {
-                  final comp = _competitors[index];
-
-                  final String compName =
-                      comp['comp_name']?.toString() ??
-                      comp['name']?.toString() ??
-                      comp['spider_dummy_name']?.toString() ??
-                      'Nieznany konkurent';
-
-                  final String shopName =
-                      comp['shop_label']?.toString() ??
-                      comp['store']?.toString() ??
-                      'Nieznany sklep';
-
-                  final num? price = _toNum(
-                    comp['comp_price_special'] ??
-                        comp['comp_price_normal'] ??
-                        comp['price_special'] ??
-                        comp['price_normal'] ??
-                        comp['spider_dummy_price'],
-                  );
-
-                  final String? url =
-                      comp['url']?.toString() ??
-                      comp['spider_dummy_url']?.toString();
-
-                  final num? priceDifference = _toNum(
-                    comp['price_difference'],
-                  );
-
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: Text(compName),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text("Sklep: $shopName"),
-                          if (url != null && url.isNotEmpty)
-                            Text(
-                              url,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: colorScheme.primary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          if (priceDifference != null)
-                            Text(
-                              "Różnica: ${priceDifference.toStringAsFixed(2)} zł",
-                              style: TextStyle(
-                                color: priceDifference < 0
-                                    ? Colors.green
-                                    : colorScheme.error,
-                                fontSize: 12,
-                              ),
-                            ),
-                        ],
-                      ),
-                      trailing: Text(
-                        price != null
-                            ? "${price.toStringAsFixed(2)} zł"
-                            : "Brak ceny",
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                  );
-                },
+      ),
+      const SizedBox(height: 16),
+      _competitors.isEmpty
+          ? Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(16),
               ),
-      ],
-    );
-  }
+              child: const Text("Brak danych o konkurencji."),
+            )
+          : ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _competitors.length,
+              itemBuilder: (context, index) {
+                final comp = _competitors[index];
+
+                final String compName =
+                    comp['comp_name']?.toString() ??
+                    comp['name']?.toString() ??
+                    'Nieznany produkt';
+
+                final String shopName =
+                    comp['shop_label']?.toString() ??
+                    comp['store']?.toString() ??
+                    'Nieznany sklep';
+
+                final num? price = _toNum(
+                  comp['comp_price_special'] ??
+                      comp['comp_price_normal'] ??
+                      comp['price_special'] ??
+                      comp['price_normal'],
+                );
+
+                final String url = comp['url']?.toString() ?? '';
+                final String imageUrl = comp['image']?.toString() ?? '';
+
+                final num? priceDifference = _toNum(
+                  comp['price_difference'],
+                );
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  elevation: 0,
+                  color: colorScheme.surfaceContainerHighest.withOpacity(0.35),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(
+                      color: colorScheme.outlineVariant.withOpacity(0.5),
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 76,
+                          height: 76,
+                          decoration: BoxDecoration(
+                            color: colorScheme.surface,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: imageUrl.isNotEmpty
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.network(
+                                    imageUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) =>
+                                        const Icon(Icons.image_not_supported),
+                                  ),
+                                )
+                              : const Icon(Icons.image_not_supported),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                compName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                "Sklep: $shopName",
+                                style: TextStyle(
+                                  color: colorScheme.onSurfaceVariant,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              if (url.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  url,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: colorScheme.primary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                              if (priceDifference != null) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  priceDifference == 0
+                                      ? "Cena taka sama"
+                                      : priceDifference > 0
+                                          ? "Konkurencja drożej o ${priceDifference.toStringAsFixed(2)} zł"
+                                          : "Konkurencja taniej o ${priceDifference.abs().toStringAsFixed(2)} zł",
+                                  style: TextStyle(
+                                    color: priceDifference > 0
+                                        ? Colors.green
+                                        : priceDifference < 0
+                                            ? colorScheme.error
+                                            : colorScheme.onSurfaceVariant,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          price != null
+                              ? "${price.toStringAsFixed(2)} zł"
+                              : "Brak ceny",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+    ],
+  );
+}
 
   Widget _buildRecommendationSection(ColorScheme colorScheme) {
     final hasPremium = _subscriptionPlan == 'Premium';

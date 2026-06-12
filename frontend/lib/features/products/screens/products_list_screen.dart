@@ -26,29 +26,34 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
 
   Future<void> _fetchProducts() async {
     setState(() => _isLoading = true);
+
     try {
+      final encodedSearch = Uri.encodeQueryComponent(_searchQuery);
+
       final url = Uri.parse(
-      "/api/products?page=$_currentPage&per_page=20&search=$_searchQuery",
+        "/api/products?page=$_currentPage&per_page=20&matched_only=true&search=$encodedSearch",
       );
 
       final response = await ApiClient.get(
-      url,
-      headers: {'Accept': 'application/json'},
+        url,
+        headers: {'Accept': 'application/json'},
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+
         if (data['ok'] == true) {
           setState(() {
-            _products = data['data'];
-            _totalPages = data['pagination']['total_pages'];
+            _products = data['data'] ?? [];
+            _totalPages = data['pagination']?['total_pages'] ?? 1;
           });
         } else {
-           debugPrint("API error: ${data['error']}");
+          debugPrint("API error: ${data['error']}");
         }
       } else {
-         debugPrint("HTTP error: ${response.statusCode}");
+        debugPrint("HTTP error: ${response.statusCode}");
       }
+
       setState(() => _isLoading = false);
     } catch (e) {
       debugPrint("Błąd pobierania produktów: $e");
@@ -58,10 +63,17 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
 
   void _onSearch() {
     setState(() {
-      _searchQuery = _searchController.text;
+      _searchQuery = _searchController.text.trim();
       _currentPage = 1;
     });
+
     _fetchProducts();
+  }
+
+  num? _toNum(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value;
+    return num.tryParse(value.toString());
   }
 
   @override
@@ -71,14 +83,13 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Search Bar
         Row(
           children: [
             Expanded(
               child: TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Szukaj produktu...',
+                  hintText: 'Szukaj zmatchowanego produktu...',
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
                   fillColor: colorScheme.surface,
@@ -94,21 +105,35 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
             ElevatedButton(
               onPressed: _onSearch,
               style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 16,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: const Text("Szukaj"),
-            )
+            ),
           ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Pokazujemy tylko produkty, które mają dopasowanie w tabeli matches.',
+          style: TextStyle(
+            color: colorScheme.onSurfaceVariant,
+            fontSize: 13,
+          ),
         ),
         const SizedBox(height: 24),
 
-        // Product List
         Expanded(
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _products.isEmpty
-                  ? const Center(child: Text("Brak produktów do wyświetlenia."))
+                  ? const Center(
+                      child: Text("Brak zmatchowanych produktów do wyświetlenia."),
+                    )
                   : ListView.builder(
                       itemCount: _products.length,
                       itemBuilder: (context, index) {
@@ -118,7 +143,6 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
                     ),
         ),
 
-        // Pagination
         if (!_isLoading && _totalPages > 1)
           Padding(
             padding: const EdgeInsets.only(top: 16.0),
@@ -146,16 +170,18 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
                 ),
               ],
             ),
-          )
+          ),
       ],
     );
   }
 
   Widget _buildProductCard(dynamic product, ColorScheme colorScheme) {
-    final String name = product['name'] ?? 'Brak nazwy';
-    final String sku = product['sku'] ?? 'N/A';
-    final num? price = product['price_special'] ?? product['price_normal'];
-    final String imageUrl = product['image'] ?? '';
+    final String name = product['name']?.toString() ?? 'Brak nazwy';
+    final String sku = product['sku']?.toString() ?? 'N/A';
+    final num? price = _toNum(product['price_special'] ?? product['price_normal']);
+    final String imageUrl = product['image']?.toString() ?? '';
+    final int competitorsCount =
+        int.tryParse('${product['competitors_count'] ?? 0}') ?? 0;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -177,19 +203,20 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
           child: Row(
             children: [
               Container(
-                width: 80,
-                height: 80,
+                width: 86,
+                height: 86,
                 decoration: BoxDecoration(
                   color: colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: imageUrl.isNotEmpty
                     ? ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(12),
                         child: Image.network(
                           imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.image_not_supported),
+                          errorBuilder: (context, error, stackTrace) =>
+                              const Icon(Icons.image_not_supported),
                         ),
                       )
                     : const Icon(Icons.inventory, size: 32),
@@ -201,12 +228,40 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
                   children: [
                     Text(
                       name,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    Text("SKU: $sku", style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 13)),
+                    Text(
+                      "SKU: $sku",
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '$competitorsCount dopasowań',
+                        style: TextStyle(
+                          color: colorScheme.onPrimaryContainer,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -223,7 +278,11 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Icon(Icons.arrow_forward_ios, size: 16, color: colorScheme.onSurfaceVariant),
+                  Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ],
               ),
             ],
