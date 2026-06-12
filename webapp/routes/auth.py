@@ -861,25 +861,32 @@ def api_subscription_buy():
     try:
         cur = conn.cursor()
         
+        cur.execute("SELECT client_id FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
+        client_id = row[0] if row else None
+        
+        new_status = 'active' if client_id else 'pending_admin'
+        
         cur.execute("""
             UPDATE users 
-            SET subscription_plan = %s, status = 'pending_admin' 
+            SET subscription_plan = %s, status = %s 
             WHERE id = %s
-        """, (package, user_id))
+        """, (package, new_status, user_id))
 
-        cur.execute("""
-            UPDATE onboarding_requests 
-            SET status = 'pending_admin' 
-            WHERE user_id = %s AND status = 'awaiting_payment'
-        """, (user_id,))
+        if not client_id:
+            cur.execute("""
+                UPDATE onboarding_requests 
+                SET status = 'pending_admin' 
+                WHERE user_id = %s AND status = 'awaiting_payment'
+            """, (user_id,))
 
         conn.commit()
-        session["status"] = "pending_admin"
+        session["status"] = new_status
 
         return jsonify({
             "ok": True,
             "message": "Subscription plan selected successfully.",
-            "status": "pending_admin"
+            "status": new_status
         })
     except Exception as e:
         traceback.print_exc()

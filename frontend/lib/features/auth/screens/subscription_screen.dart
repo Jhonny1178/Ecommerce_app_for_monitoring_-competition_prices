@@ -35,8 +35,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pakiet został zmieniony.'), backgroundColor: Colors.green));
             Navigator.of(context).pop(true); // Wracamy do dashboardu, informując o zmianie
           } else {
+            final newStatus = data['status'] ?? 'pending_admin';
             Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const AuthRouter(status: 'pending_admin', isAdmin: false)),
+              MaterialPageRoute(builder: (_) => AuthRouter(status: newStatus, isAdmin: false)),
             );
           }
         }
