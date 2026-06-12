@@ -554,15 +554,71 @@ def api_product_detail(product_id):
 @products_bp.route("/api/products/<int:product_id>/recommend", methods=["POST"])
 @login_required
 def api_product_recommend(product_id):
-    import random
+    prefix = _get_store_prefix()
+    if not prefix:
+        return jsonify({"ok": False, "error": "Brak zdefiniowanego sklepu w sesji"}), 401
 
-    suggested = round(random.uniform(50.0, 300.0), 2)
+    products_table = f"{prefix}_products"
+    competitors_table = f"{prefix}_competitors"
+    matches_table = f"{prefix}_matches"
 
-    return jsonify({
-        "ok": True,
-        "recommendation": suggested,
-        "reason": "Sztuczna Inteligencja przeanalizowała historię cen konkurencji i uznała, że jest to optymalna kwota maksymalizująca zysk."
-    })
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_db()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        if not _table_exists(cursor, products_table):
+            return jsonify({"ok": False, "error": "Tabela produktów klienta nie istnieje"}), 404
+
+        query = sql.SQL("SELECT * FROM {} WHERE id = %s").format(sql.Identifier(products_table))
+        cursor.execute(query, (product_id,))
+        product = cursor.fetchone()
+
+        if not product:
+            return jsonify({"ok": False, "error": "Produkt nie został znaleziony"}), 404
+
+        product_dict = dict(product)
+        competitors = _fetch_competitors_for_product(cursor, product_dict, matches_table, competitors_table)
+        
+        prices = []
+        for c in competitors:
+            price = c.get("price_special") or c.get("price_normal")
+            if price is not None:
+                prices.append(float(price))
+                
+        our_price = float(product_dict.get("price_special") or product_dict.get("price_normal") or 0.0)
+
+        payload = {
+            "nazwa_produktu": product_dict.get("name") or "Nieznany produkt",
+            "lista_rynkowa": prices,
+            "nasza_cena": our_price
+        }
+
+        import requests
+        response = requests.post("http://recommendation_service:8000/api/oblicz-cene", json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return jsonify({
+                "ok": True,
+                "recommendation": data.get("cena_ostateczna"),
+                "reason": data.get("uzasadnienie")
+            })
+        else:
+            return jsonify({"ok": False, "error": f"Błąd silnika AI: {response.text}"}), 502
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 @products_bp.route("/api/stats")
