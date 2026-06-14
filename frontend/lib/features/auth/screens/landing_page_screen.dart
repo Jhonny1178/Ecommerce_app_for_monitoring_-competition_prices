@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:tonten/features/auth/screens/login_screen.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:tonten/features/auth/screens/auth_router.dart';
 
 class LandingPageScreen extends StatefulWidget {
   const LandingPageScreen({super.key});
@@ -18,7 +15,6 @@ class _LandingPageScreenState extends State<LandingPageScreen> {
   @override
   void initState() {
     super.initState();
-    _checkAuthStatus();
     _scrollController.addListener(() {
       if (_scrollController.offset > 50 && !_isScrolled) {
         setState(() => _isScrolled = true);
@@ -26,30 +22,6 @@ class _LandingPageScreenState extends State<LandingPageScreen> {
         setState(() => _isScrolled = false);
       }
     });
-  }
-
-  Future<void> _checkAuthStatus() async {
-    try {
-      final response = await http.get(
-        Uri.parse('/api/me'),
-        headers: {'Accept': 'application/json'},
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['ok'] == true) {
-          final user = data['user'] ?? {};
-          final status = user['status']?.toString() ?? 'active';
-          final isAdmin = data['is_admin'] == true;
-          if (mounted) {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => AuthRouter(status: status, isAdmin: isAdmin)),
-            );
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Auth check failed: $e');
-    }
   }
 
   @override

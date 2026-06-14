@@ -106,6 +106,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  void _refreshData() {
+    setState(() => _isLoadingStats = true);
+    _fetchStats();
+    _checkUserStatus();
+  }
+
   Future<void> _fetchStats() async {
     try {
       final response = await ApiClient.get(
@@ -520,6 +526,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 28),
+                  tooltip: 'Odśwież',
+                  onPressed: _refreshData,
+                ),
                 IconButton(
                   icon: const Icon(Icons.notifications_none, size: 28),
                   onPressed: () {},

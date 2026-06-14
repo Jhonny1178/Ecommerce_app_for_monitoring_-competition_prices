@@ -284,6 +284,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     }
   }
 
+  void _refreshData() {
+    _fetchPendingUsers();
+    _fetchScrapers();
+    _fetchStores();
+    _fetchRegRequests();
+    _fetchErrorLogs();
+  }
+
   void _logout() async {
     await ApiClient.post(Uri.parse("/api/logout"));
     if (mounted) Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
@@ -454,6 +462,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        IconButton(
+                          icon: const Icon(Icons.refresh, size: 28),
+                          tooltip: 'Odśwież',
+                          onPressed: _refreshData,
+                        ),
                         IconButton(icon: const Icon(Icons.notifications_none, size: 28), onPressed: () {}),
                         PopupMenuButton<String>(
                           offset: const Offset(0, 50),
