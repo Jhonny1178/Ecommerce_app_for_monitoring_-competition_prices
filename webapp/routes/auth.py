@@ -1037,7 +1037,27 @@ def api_send_message():
         }), 400
 
     username = session.get("username", "Nieznany")
-    send_email(f"Nowa wiadomość od {username}", message)
+    user_id = session.get("user_id")
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO error_logs (
+                user_id,
+                category,
+                message,
+                error_type,
+                is_reviewed
+            )
+            VALUES (%s, 'Klient', %s, 'Zgłoszony', FALSE)
+        """, (user_id, "Wiadomość od klienta: " + message))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
 
     return jsonify({
         "ok": True,
