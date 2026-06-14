@@ -36,7 +36,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   bool _isLoading = false;
   Future<void> _login() async {
     final email = _emailController.text.trim();
-    if (email.isEmpty || !email.contains('@')) {
+    if (email.isEmpty || (!email.contains('@') && email != 'admin' && email != 'nasz_klient')) {
       setState(() {
         _emailError = 'Podaj poprawny adres e-mail';
       });
