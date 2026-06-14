@@ -3,9 +3,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'auth_router.dart';
+import 'auth_router.dart';
 import 'register_screen_one.dart';
 import 'register_screen_two.dart';
 import '../../../core/utils/dialog_utils.dart';
+import 'reset_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -29,11 +31,20 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  String? _emailError;
 
   bool _isLoading = false;
   Future<void> _login() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() {
+        _emailError = 'Podaj poprawny adres e-mail';
+      });
+      return;
+    }
     setState(() {
       _isLoading = true;
+      _emailError = null;
     });
 
     try {
@@ -296,13 +307,18 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         children: [
           TextField(
             controller: _emailController,
-            onChanged: (val) => setState(() {}),
+            onChanged: (val) {
+              setState(() {
+                _emailError = null;
+              });
+            },
             decoration: InputDecoration(
               filled: true,
               fillColor: colorScheme.surfaceContainerHigh,
               labelText: 'E-mail',
               hintText: 'Wpisz swój e-mail...',
               border: const UnderlineInputBorder(),
+              errorText: _emailError,
             ),
             keyboardType: TextInputType.emailAddress,
           ),
@@ -333,7 +349,62 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               ),
             ),
           ),
-          const SizedBox(height: 32),
+          
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: () async {
+                final email = _emailController.text.trim();
+                if (email.isEmpty || !email.contains('@')) {
+                  setState(() {
+                    _emailError = 'Podaj poprawny adres e-mail (musi zawierać @)';
+                  });
+                  return;
+                }
+                
+                setState(() {
+                  _emailError = null;
+                  _isLoading = true;
+                });
+                try {
+                  final response = await http.post(
+                    Uri.parse('/api/forgot_password'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({'email': email}),
+                  );
+                  
+                  if (response.statusCode == 200) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Kod został wysłany na podany e-mail!'), backgroundColor: Colors.green),
+                      );
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => ResetPasswordScreen(email: email)),
+                      );
+                    }
+                  } else {
+                    final data = jsonDecode(response.body);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(data['error'] ?? 'Wystąpił błąd'), backgroundColor: Colors.red),
+                      );
+                    }
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Błąd połączenia: $e'), backgroundColor: Colors.red),
+                    );
+                  }
+                } finally {
+                  if (mounted) setState(() => _isLoading = false);
+                }
+              },
+              child: const Text('Zapomniałeś hasła?'),
+            ),
+          ),
+          
+          const SizedBox(height: 24),
 
           Center(
             child: FilledButton(

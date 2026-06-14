@@ -618,3 +618,18 @@ FROM (
 ) sub
 WHERE c.id = sub.client_id
   AND c.slug = 'nasz_klient';
+
+-- ============================================================
+-- 15. Resetowanie hasła
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reset_token_hash TEXT NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_resets_user_id
+ON password_resets(user_id);

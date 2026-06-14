@@ -4,6 +4,9 @@ import os
 import traceback
 import smtplib
 from email.message import EmailMessage
+import string
+import random
+import datetime
 
 import psycopg2
 import psycopg2.extras
@@ -181,32 +184,41 @@ def _attach_scrapers_to_client(cur, request_id, client_id, store_prefix, admin_u
 
 
 def send_email(subject, body, to_email=None):
-    smtp_host = os.environ.get("SMTP_HOST")
-    smtp_port = int(os.environ.get("SMTP_PORT", "465"))
-    smtp_user = os.environ.get("SMTP_USERNAME")
-    smtp_password = os.environ.get("SMTP_PASSWORD")
-    smtp_from = os.environ.get("SMTP_FROM")
+    api_key = os.environ.get("Mailtrap_api")
     default_to = os.environ.get("SMTP_DEFAULT_TO")
-
     to_email = to_email or default_to
 
-    if not all([smtp_host, smtp_user, smtp_password, smtp_from, to_email]):
-        print("SMTP not configured. Skipping email send.")
+    if not api_key:
+        print("Brak zmiennej Mailtrap_api w .env! Drukuję e-mail w konsoli:")
+        print("="*40)
+        print(f"Do: {to_email}")
+        print(f"Temat: {subject}")
+        print(f"Treść:\n{body}")
+        print("="*40)
         return
 
+    url = "https://send.api.mailtrap.io/api/send"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "from": {"email": "hello@demomailtrap.com", "name": "e-ROCH System"},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "text": body
+    }
+    
     try:
-        msg = EmailMessage()
-        msg.set_content(body)
-        msg["Subject"] = subject
-        msg["From"] = smtp_from
-        msg["To"] = to_email
-
-        with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code >= 400:
+            print(f"Błąd Mailtrap API: {response.status_code} - {response.text}")
+        else:
+            print(f"E-mail wysłany pomyślnie przez Mailtrap (status: {response.status_code})")
     except Exception as e:
-        print(f"Błąd wysyłania e-maila: {e}")
+        print(f"Błąd połączenia z Mailtrap: {e}")
 
 
 # ============================================================
@@ -220,21 +232,121 @@ def api_change_password():
         return jsonify({"ok": False, "error": "Brak autoryzacji"}), 401
 
     data = request.get_json() or {}
+    current_password = data.get("current_password", "")
     new_password = data.get("new_password", "").strip()
 
-    if len(new_password) < 6:
-        return jsonify({"ok": False, "error": "Hasło musi mieć min. 6 znaków"}), 400
+    if not current_password:
+        return jsonify({"ok": False, "error": "Podaj aktualne hasło"}), 400
 
-    hashed = hash_password(new_password)
+    if len(new_password) < 6 or not any(char.isdigit() for char in new_password):
+        return jsonify({"ok": False, "error": "Hasło musi mieć minimum 6 znaków i zawierać przynajmniej jedną cyfrę"}), 400
 
     try:
         conn = get_db()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cur.execute("SELECT password_hash FROM users WHERE id = %s", (user_id,))
+        user = cur.fetchone()
+        
+        if not user or user["password_hash"] != hash_password(current_password):
+            cur.close()
+            conn.close()
+            return jsonify({"ok": False, "error": "Aktualne hasło jest niepoprawne"}), 400
+
+        hashed = hash_password(new_password)
         cur.execute("UPDATE users SET password_hash = %s, updated_at = NOW() WHERE id = %s", (hashed, user_id))
         conn.commit()
         cur.close()
         conn.close()
         return jsonify({"ok": True, "message": "Hasło zostało zmienione"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@auth_bp.route("/api/forgot_password", methods=["POST"])
+def api_forgot_password():
+    data = request.get_json() or {}
+    email = data.get("email", "").strip()
+
+    if not email:
+        return jsonify({"ok": False, "error": "Podaj adres e-mail"}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id FROM users WHERE email = %s OR username = %s", (email, email))
+        user = cur.fetchone()
+
+        if user:
+            code = ''.join(random.choices(string.digits, k=6))
+            hashed_code = hash_password(code)
+            expires_at = datetime.datetime.now() + datetime.timedelta(minutes=15)
+
+            cur.execute("""
+                INSERT INTO password_resets (user_id, reset_token_hash, expires_at)
+                VALUES (%s, %s, %s)
+            """, (user["id"], hashed_code, expires_at))
+            conn.commit()
+
+            subject = "Kod resetowania hasła"
+            body = f"Twój kod do zresetowania hasła to: {code}\n\nKod jest ważny przez 15 minut."
+            send_email(subject, body, to_email=email)
+
+        cur.close()
+        conn.close()
+
+        return jsonify({"ok": True, "message": "Jeśli konto istnieje, wysłaliśmy kod na Twój e-mail."})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@auth_bp.route("/api/reset_password", methods=["POST"])
+def api_reset_password():
+    data = request.get_json() or {}
+    email = data.get("email", "").strip()
+    code = data.get("code", "").strip()
+    new_password = data.get("new_password", "").strip()
+
+    if not email or not code or not new_password:
+        return jsonify({"ok": False, "error": "Wypełnij wszystkie pola"}), 400
+
+    if len(new_password) < 6 or not any(char.isdigit() for char in new_password):
+        return jsonify({"ok": False, "error": "Hasło musi mieć minimum 6 znaków i zawierać przynajmniej jedną cyfrę"}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cur.execute("SELECT id FROM users WHERE email = %s OR username = %s", (email, email))
+        user = cur.fetchone()
+
+        if not user:
+            cur.close()
+            conn.close()
+            return jsonify({"ok": False, "error": "Nieprawidłowy kod lub e-mail"}), 400
+
+        user_id = user["id"]
+        hashed_code = hash_password(code)
+
+        cur.execute("""
+            SELECT id FROM password_resets
+            WHERE user_id = %s AND reset_token_hash = %s AND expires_at > NOW()
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id, hashed_code))
+        reset_record = cur.fetchone()
+
+        if not reset_record:
+            cur.close()
+            conn.close()
+            return jsonify({"ok": False, "error": "Nieprawidłowy lub wygasły kod"}), 400
+
+        hashed_password = hash_password(new_password)
+        cur.execute("UPDATE users SET password_hash = %s, updated_at = NOW() WHERE id = %s", (hashed_password, user_id))
+        cur.execute("DELETE FROM password_resets WHERE id = %s", (reset_record["id"],))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({"ok": True, "message": "Hasło zostało pomyślnie zmienione"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -349,7 +461,13 @@ def api_register():
     if not first_name or not last_name or not email or not password or not company_domain:
         return jsonify({
             "ok": False,
-            "error": "Fill all required fields!"
+            "error": "Wypełnij wszystkie pola!"
+        }), 400
+
+    if len(password) < 6 or not any(char.isdigit() for char in password):
+        return jsonify({
+            "ok": False,
+            "error": "Hasło musi mieć minimum 6 znaków i zawierać przynajmniej jedną cyfrę"
         }), 400
 
     if not competitor_urls:

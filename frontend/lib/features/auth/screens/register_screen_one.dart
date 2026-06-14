@@ -14,6 +14,11 @@ class _RegisterScreenOneState extends State<RegisterScreenOne> {
   final _surnameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _repeatPasswordController = TextEditingController();
+
+  String? _emailError;
+  String? _passwordError;
+  String? _repeatPasswordError;
 
   @override
   void dispose() {
@@ -21,6 +26,7 @@ class _RegisterScreenOneState extends State<RegisterScreenOne> {
     _surnameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _repeatPasswordController.dispose();
     super.dispose();
   }
 
@@ -28,7 +34,8 @@ class _RegisterScreenOneState extends State<RegisterScreenOne> {
     return _nameController.text.isNotEmpty &&
           _surnameController.text.isNotEmpty &&
           _emailController.text.isNotEmpty &&
-          _passwordController.text.isNotEmpty;
+          _passwordController.text.isNotEmpty &&
+          _repeatPasswordController.text.isNotEmpty;
   }
 
   @override
@@ -42,13 +49,37 @@ class _RegisterScreenOneState extends State<RegisterScreenOne> {
           const SizedBox(height: 20),
           _buildField(context, 'Nazwisko', 'Wpisz swoje nazwisko...', _surnameController),
           const SizedBox(height: 20),
-          _buildField(context, 'E-mail', 'Wpisz swój e-mail...', _emailController),
+          _buildField(context, 'E-mail', 'Wpisz swój e-mail...', _emailController, errorText: _emailError),
           const SizedBox(height: 20),
-          _buildField(context, 'Hasło', 'Wpisz swoje hasło...', _passwordController, obscureText: true),
+          _buildField(context, 'Hasło', 'Wpisz swoje hasło...', _passwordController, obscureText: true, errorText: _passwordError),
+          const SizedBox(height: 20),
+          _buildField(context, 'Powtórz hasło', 'Wpisz ponownie hasło...', _repeatPasswordController, obscureText: true, errorText: _repeatPasswordError),
           const SizedBox(height: 32),
           Center(
             child: FilledButton(
               onPressed: _isValid ? () {
+                final email = _emailController.text.trim();
+                final password = _passwordController.text;
+                bool hasError = false;
+                
+                if (!email.contains('@')) {
+                  _emailError = 'Brak znaku @ w adresie e-mail';
+                  hasError = true;
+                }
+                if (password.length < 6 || !password.contains(RegExp(r'\d'))) {
+                   _passwordError = 'Hasło musi mieć min. 6 znaków i 1 cyfrę';
+                   hasError = true;
+                }
+                if (password != _repeatPasswordController.text) {
+                   _repeatPasswordError = 'Hasła nie są identyczne';
+                   hasError = true;
+                }
+                
+                if (hasError) {
+                  setState(() {});
+                  return;
+                }
+                
                 widget.onNext(
                   _nameController.text,
                   _surnameController.text,
@@ -67,18 +98,25 @@ class _RegisterScreenOneState extends State<RegisterScreenOne> {
     );
   }
 
-  Widget _buildField(BuildContext context, String label, String hint, TextEditingController controller, {bool obscureText = false}) {
+  Widget _buildField(BuildContext context, String label, String hint, TextEditingController controller, {bool obscureText = false, String? errorText}) {
     final colorScheme = Theme.of(context).colorScheme;
     return TextField(
       controller: controller,
       obscureText: obscureText,
-      onChanged: (val) => setState(() {}),
+      onChanged: (val) {
+        setState(() {
+          _emailError = null;
+          _passwordError = null;
+          _repeatPasswordError = null;
+        });
+      },
       decoration: InputDecoration(
         filled: true,
         fillColor: colorScheme.surfaceContainerHigh,
         labelText: label,
         hintText: hint,
         border: const UnderlineInputBorder(),
+        errorText: errorText,
       ),
     );
   }

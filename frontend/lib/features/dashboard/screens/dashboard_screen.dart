@@ -9,6 +9,7 @@ import '../../auth/screens/login_screen.dart';
 import '../../auth/screens/file_upload_screen.dart';
 import '../../auth/screens/subscription_screen.dart';
 import '../../auth/screens/auth_router.dart';
+import '../../auth/screens/reset_password_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -22,7 +23,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedTabIndex = 0;
   bool _isLoadingStats = true;
   bool _isCheckingUserStatus = true;
+  final TextEditingController _currentPasswordController = TextEditingController();
   final TextEditingController _newPasswordController = TextEditingController();
+  final TextEditingController _repeatPasswordController = TextEditingController();
+  String? _currentPasswordError;
+  String? _newPasswordError;
+  String? _repeatPasswordError;
   bool _isChangingPassword = false;
   Map<String, dynamic> _stats = {};
 
@@ -288,34 +294,87 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     Text('Zmiana hasła', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
                                     const SizedBox(height: 16),
                                     TextField(
+                                      controller: _currentPasswordController,
+                                      obscureText: true,
+                                      onChanged: (val) => setTabState(() => _currentPasswordError = null),
+                                      decoration: InputDecoration(
+                                        labelText: 'Aktualne hasło',
+                                        border: const OutlineInputBorder(),
+                                        filled: true,
+                                        fillColor: colorScheme.surfaceContainer,
+                                        errorText: _currentPasswordError,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    TextField(
                                       controller: _newPasswordController,
                                       obscureText: true,
+                                      onChanged: (val) => setTabState(() => _newPasswordError = null),
                                       decoration: InputDecoration(
                                         labelText: 'Nowe hasło',
                                         border: const OutlineInputBorder(),
                                         filled: true,
                                         fillColor: colorScheme.surfaceContainer,
+                                        errorText: _newPasswordError,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    TextField(
+                                      controller: _repeatPasswordController,
+                                      obscureText: true,
+                                      onChanged: (val) => setTabState(() => _repeatPasswordError = null),
+                                      decoration: InputDecoration(
+                                        labelText: 'Powtórz nowe hasło',
+                                        border: const OutlineInputBorder(),
+                                        filled: true,
+                                        fillColor: colorScheme.surfaceContainer,
+                                        errorText: _repeatPasswordError,
                                       ),
                                     ),
                                     const SizedBox(height: 24),
                                     FilledButton(
                                       onPressed: _isChangingPassword ? null : () async {
-                                        if (_newPasswordController.text.length < 6) {
-                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hasło musi mieć min. 6 znaków'), backgroundColor: Colors.red));
+                                        final currentPassword = _currentPasswordController.text;
+                                        final newPassword = _newPasswordController.text;
+                                        final repeatPassword = _repeatPasswordController.text;
+                                        bool hasError = false;
+
+                                        if (currentPassword.isEmpty) {
+                                          _currentPasswordError = 'Podaj aktualne hasło';
+                                          hasError = true;
+                                        }
+                                        if (newPassword.length < 6 || !newPassword.contains(RegExp(r'\d'))) {
+                                          _newPasswordError = 'Hasło musi mieć minimum 6 znaków i zawierać przynajmniej jedną cyfrę';
+                                          hasError = true;
+                                        }
+                                        if (newPassword != repeatPassword) {
+                                          _repeatPasswordError = 'Nowe hasła nie są identyczne';
+                                          hasError = true;
+                                        }
+                                        
+                                        if (hasError) {
+                                          setTabState(() {});
                                           return;
                                         }
+
                                         setTabState(() => _isChangingPassword = true);
                                         try {
                                           final res = await ApiClient.post(
                                             Uri.parse('/api/change_password'),
                                             headers: {'Content-Type': 'application/json'},
-                                            body: jsonEncode({'new_password': _newPasswordController.text}),
+                                            body: jsonEncode({
+                                              'current_password': currentPassword,
+                                              'new_password': newPassword
+                                            }),
                                           );
                                           if (res.statusCode == 200) {
+                                            _currentPasswordController.clear();
                                             _newPasswordController.clear();
+                                            _repeatPasswordController.clear();
                                             if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hasło zmienione pomyślnie'), backgroundColor: Colors.green));
                                           } else {
-                                            if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Błąd zmiany hasła. Status: ${res.statusCode}'), backgroundColor: Colors.red));
+                                            final data = jsonDecode(res.body);
+                                            if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['error'] ?? 'Błąd zmiany hasła'), backgroundColor: Colors.red));
                                           }
                                         } catch (e) {
                                           if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Błąd połączenia: $e'), backgroundColor: Colors.red));
@@ -324,6 +383,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         }
                                       },
                                       child: _isChangingPassword ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('Zapisz nowe hasło'),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    TextButton(
+                                      onPressed: () async {
+                                        final email = user['email'] ?? user['username'];
+                                        if (email == null || email.isEmpty) {
+                                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Brak zapisanego adresu e-mail na koncie'), backgroundColor: Colors.red));
+                                          return;
+                                        }
+                                        
+                                        setTabState(() => _isChangingPassword = true);
+                                        try {
+                                          final response = await ApiClient.post(
+                                            Uri.parse('/api/forgot_password'),
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: jsonEncode({'email': email}),
+                                          );
+                                          
+                                          if (response.statusCode == 200) {
+                                            Navigator.pop(dialogContext); // Close dialog
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kod został wysłany na powiązany e-mail!'), backgroundColor: Colors.green));
+                                              Navigator.of(context).push(MaterialPageRoute(builder: (_) => ResetPasswordScreen(email: email)));
+                                            }
+                                          } else {
+                                            final data = jsonDecode(response.body);
+                                            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['error'] ?? 'Wystąpił błąd'), backgroundColor: Colors.red));
+                                          }
+                                        } catch (e) {
+                                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Błąd połączenia: $e'), backgroundColor: Colors.red));
+                                        } finally {
+                                          setTabState(() => _isChangingPassword = false);
+                                        }
+                                      },
+                                      child: const Text('Zapomniałem hasła'),
                                     )
                                   ],
                                 ),
