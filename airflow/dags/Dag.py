@@ -410,7 +410,7 @@ def ingest_client_products(client, pipeline_run_id=None):
     field_mapping = normalize_field_mapping(client.get("field_mapping"))
 
     started_at = datetime.now()
-    task_name = "ingest_client_products"
+    task_name = prefix
 
     try:
         if source_type == "url" and source_url:
@@ -781,6 +781,9 @@ with DAG(
             scraper_tasks = []
 
             for spider_name in spiders:
+                if spider_name == prefix:
+                    continue
+                    
                 scraper_task = PythonOperator(
                     task_id=f"scrape_{safe_task_id(spider_name)}",
                     python_callable=run_spider_for_client,

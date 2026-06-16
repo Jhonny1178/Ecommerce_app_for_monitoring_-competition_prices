@@ -1895,13 +1895,15 @@ def list_scrapers():
                 (
                     SELECT status 
                     FROM pipeline_task_runs ptr 
-                    WHERE ptr.client_id = sr.client_id AND ptr.task_id = sr.spider_name 
+                    WHERE ptr.client_id = sr.client_id 
+                      AND ptr.task_id IN (sr.spider_name, 'scraper_' || sr.spider_name, 'scrape_' || sr.spider_name)
                     ORDER BY ptr.started_at DESC LIMIT 1
                 ) as last_run_status,
                 (
                     SELECT started_at::TEXT 
                     FROM pipeline_task_runs ptr 
-                    WHERE ptr.client_id = sr.client_id AND ptr.task_id = sr.spider_name 
+                    WHERE ptr.client_id = sr.client_id 
+                      AND ptr.task_id IN (sr.spider_name, 'scraper_' || sr.spider_name, 'scrape_' || sr.spider_name)
                     ORDER BY ptr.started_at DESC LIMIT 1
                 ) as last_run_time
             FROM scraper_registry sr
@@ -1949,19 +1951,22 @@ def scraper_runs(scraper_id):
             conn.close()
             return jsonify({"ok": False, "error": "Scraper not found or not assigned to client"}), 404
 
+        spider_name = scraper['spider_name']
         cur.execute("""
             SELECT 
                 id, 
+                pipeline_run_id,
                 status, 
                 started_at::TEXT, 
                 finished_at::TEXT, 
                 log_excerpt, 
                 error_msg
             FROM pipeline_task_runs
-            WHERE client_id = %s AND task_id = %s
+            WHERE client_id = %s 
+              AND task_id IN (%s, %s, %s)
             ORDER BY started_at DESC
             LIMIT 50
-        """, (scraper['client_id'], scraper['spider_name']))
+        """, (scraper['client_id'], spider_name, f"scraper_{spider_name}", f"scrape_{spider_name}"))
 
         runs = cur.fetchall()
 
@@ -1969,6 +1974,39 @@ def scraper_runs(scraper_id):
         conn.close()
 
         return jsonify({"ok": True, "runs": runs})
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@auth_bp.route("/api/admin/pipeline_runs/<int:run_id>/tasks", methods=["GET"])
+def pipeline_run_tasks(run_id):
+    if not session.get("is_admin"):
+        return jsonify({"ok": False, "error": "Unauthorized"}), 403
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT 
+                id,
+                task_id,
+                status,
+                started_at::TEXT,
+                finished_at::TEXT,
+                error_msg
+            FROM pipeline_task_runs
+            WHERE pipeline_run_id = %s
+            ORDER BY started_at ASC
+        """, (run_id,))
+
+        tasks = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return jsonify({"ok": True, "tasks": tasks})
 
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:tonten/core/api/api_client.dart';
+import '../widgets/pipeline_graph_widget.dart';
 
 class AdminScraperLogsScreen extends StatefulWidget {
   final int scraperId;
@@ -43,55 +44,69 @@ class _AdminScraperLogsScreenState extends State<AdminScraperLogsScreen> {
     }
   }
 
-  void _showLogDialog(Map<String, dynamic> run) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Logi uruchomienia z ${DateTime.parse(run['started_at']).toLocal().toString().substring(0, 16)}'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (run['error_msg'] != null && run['error_msg'].toString().isNotEmpty) ...[
-                    const Text('Błąd:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
-                    Text(run['error_msg'], style: const TextStyle(color: Colors.red)),
-                    const SizedBox(height: 16),
-                  ],
-                  const Text('Zrzut konsoli:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      run['log_excerpt'] ?? 'Brak logów',
-                      style: const TextStyle(
-                        fontFamily: 'Courier',
-                        color: Colors.greenAccent,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
+  List<Widget> _buildParsedLogs(String logsText) {
+    if (logsText.isEmpty) return [const Text('Brak logów')];
+    
+    final lines = logsText.split('\n');
+    final List<Widget> widgets = [];
+    
+    for (var line in lines) {
+      if (line.trim().isEmpty) continue;
+      
+      Color textColor = Theme.of(context).brightness == Brightness.dark ? Colors.white70 : Colors.black87;
+      IconData icon = Icons.info_outline;
+      Color iconColor = Colors.grey;
+
+      final lowerLine = line.toLowerCase();
+      bool isImportant = false;
+
+      if (lowerLine.contains('error') || lowerLine.contains('exception') || lowerLine.contains('traceback') || lowerLine.contains('fail')) {
+        textColor = Colors.red;
+        icon = Icons.error;
+        iconColor = Colors.red;
+        isImportant = true;
+      } else if (lowerLine.contains('warning')) {
+        textColor = Colors.orange;
+        icon = Icons.warning;
+        iconColor = Colors.orange;
+        isImportant = true;
+      } else if (lowerLine.contains('success') || lowerLine.contains('finished') || lowerLine.contains('done') || lowerLine.contains('info: closing spider') || lowerLine.contains('spider opened')) {
+        textColor = Colors.green;
+        icon = Icons.check_circle;
+        iconColor = Colors.green;
+        isImportant = true;
+      } else if (lowerLine.contains('[scraper]') || lowerLine.contains('[ingest]') || lowerLine.contains('[matching]') || lowerLine.contains('statscollector') || lowerLine.contains('item_scraped_count')) {
+        textColor = Colors.blue;
+        icon = Icons.info_outline;
+        iconColor = Colors.blue;
+        isImportant = true;
+      }
+
+      if (!isImportant && !lowerLine.contains('critical')) {
+        continue; // Pomijamy wszystkie inne logi (szczególnie DEBUG i INFO ze Scrapy)
+      }
+
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4.0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 16, color: iconColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  line.trim(),
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: textColor),
+                ),
               ),
-            ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Zamknij'),
-            ),
-          ],
-        );
-      },
-    );
+        )
+      );
+    }
+    
+    return widgets;
   }
 
   @override
@@ -125,19 +140,26 @@ class _AdminScraperLogsScreenState extends State<AdminScraperLogsScreen> {
                     else if (status == 'running') statusColor = Colors.blue;
 
                     final startedAt = run['started_at'] != null 
-                        ? DateTime.parse(run['started_at']).toLocal().toString().substring(0, 16)
-                        : '-';
+                        ? DateTime.parse(run['started_at']).toLocal()
+                        : null;
                         
                     final finishedAt = run['finished_at'] != null 
-                        ? DateTime.parse(run['finished_at']).toLocal().toString().substring(11, 16)
-                        : '...';
+                        ? DateTime.parse(run['finished_at']).toLocal()
+                        : null;
+
+                    String durationStr = 'Trwa...';
+                    if (startedAt != null && finishedAt != null) {
+                      final diff = finishedAt.difference(startedAt);
+                      durationStr = '${diff.inMinutes}m ${diff.inSeconds % 60}s';
+                    }
 
                     return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
                       elevation: 0,
-                      child: ListTile(
+                      child: ExpansionTile(
+                        initiallyExpanded: index == 0,
                         leading: CircleAvatar(
                           backgroundColor: statusColor.withOpacity(0.2),
                           child: Icon(
@@ -145,12 +167,50 @@ class _AdminScraperLogsScreenState extends State<AdminScraperLogsScreen> {
                             color: statusColor,
                           ),
                         ),
-                        title: Text('Start: $startedAt'),
-                        subtitle: Text('Zakończenie: $finishedAt'),
-                        trailing: ElevatedButton(
-                          onPressed: () => _showLogDialog(run),
-                          child: const Text('Pokaż logi'),
-                        ),
+                        title: Text('Data: ${startedAt?.toString().substring(0, 10) ?? '-'}'),
+                        subtitle: Text('Start: ${startedAt?.toString().substring(11, 19) ?? '-'} | Koniec: ${finishedAt?.toString().substring(11, 19) ?? '-'} | Czas: $durationStr'),
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: colorScheme.surface,
+                              border: Border(top: BorderSide(color: colorScheme.outlineVariant)),
+                              borderRadius: const BorderRadius.only(
+                                bottomLeft: Radius.circular(12),
+                                bottomRight: Radius.circular(12),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (run['error_msg'] != null && run['error_msg'].toString().isNotEmpty) ...[
+                                  const Text('Błąd:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                                  Text(run['error_msg'], style: const TextStyle(color: Colors.red)),
+                                  const SizedBox(height: 16),
+                                ],
+                                const Text('Przebieg zadań Airflow:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                const SizedBox(height: 8),
+                                PipelineGraphWidget(pipelineRunId: run['pipeline_run_id'], spiderName: widget.spiderName),
+                                const SizedBox(height: 24),
+                                const Text('Zdarzenia / Logi:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                const SizedBox(height: 8),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: _buildParsedLogs(run['log_excerpt'] ?? ''),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        ],
                       ),
                     );
                   },

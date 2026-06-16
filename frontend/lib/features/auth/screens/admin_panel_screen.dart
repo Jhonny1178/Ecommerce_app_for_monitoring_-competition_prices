@@ -43,6 +43,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   bool _isLoadingScrapers = true;
   List<dynamic> _scrapers = [];
+  final TextEditingController _scrapersSearchController = TextEditingController();
+  String _scrapersSearchQuery = '';
+  int _scrapersSortColumnIndex = 0;
+  bool _scrapersSortAscending = true;
 
   @override
   void initState() {
@@ -55,6 +59,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _scrapersSearchController.dispose();
     super.dispose();
   }
 
@@ -1380,6 +1385,49 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       );
     }
 
+    List<dynamic> filteredScrapers = _scrapers.where((s) {
+      if (_scrapersSearchQuery.isEmpty) return true;
+      final searchLower = _scrapersSearchQuery.toLowerCase();
+      final name = (s['spider_name'] ?? '').toLowerCase();
+      final client = (s['client_name'] ?? '').toLowerCase();
+      return name.contains(searchLower) || client.contains(searchLower);
+    }).toList();
+
+    filteredScrapers.sort((a, b) {
+      int cmp = 0;
+      switch (_scrapersSortColumnIndex) {
+        case 0:
+          cmp = (a['id'] as int).compareTo(b['id'] as int);
+          break;
+        case 1:
+          cmp = (a['spider_name'] ?? '').compareTo(b['spider_name'] ?? '');
+          break;
+        case 2:
+          cmp = (a['client_name'] ?? '').compareTo(b['client_name'] ?? '');
+          break;
+        case 3:
+          final shopA = a['competitor_name'] ?? a['competitor_url'] ?? '';
+          final shopB = b['competitor_name'] ?? b['competitor_url'] ?? '';
+          cmp = shopA.compareTo(shopB);
+          break;
+        case 5:
+          final dateA = a['last_run_time'] ?? '';
+          final dateB = b['last_run_time'] ?? '';
+          cmp = dateA.compareTo(dateB);
+          break;
+        default:
+          cmp = 0;
+      }
+      return _scrapersSortAscending ? cmp : -cmp;
+    });
+
+    void _onSort(int columnIndex, bool ascending) {
+      setState(() {
+        _scrapersSortColumnIndex = columnIndex;
+        _scrapersSortAscending = ascending;
+      });
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1390,10 +1438,27 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               'Cykliczne Scrapery',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _fetchScrapers,
-              tooltip: 'Odśwież',
+            Row(
+              children: [
+                SizedBox(
+                  width: 300,
+                  height: 40,
+                  child: TextField(
+                    controller: _scrapersSearchController,
+                    onChanged: (val) {
+                      setState(() => _scrapersSearchQuery = val);
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Szukaj scrapera lub klienta...',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      filled: true,
+                      fillColor: colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                    ),
+                  ),
+                ),
+              ],
             )
           ],
         ),
@@ -1411,17 +1476,18 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minWidth: constraints.maxWidth),
                   child: DataTable(
+                    showCheckboxColumn: false,
+                    sortColumnIndex: _scrapersSortColumnIndex,
+                    sortAscending: _scrapersSortAscending,
                     headingRowColor: WidgetStateProperty.all(colorScheme.surfaceContainerHighest.withOpacity(0.5)),
-                    columns: const [
-                      DataColumn(label: Expanded(child: Text('ID', style: TextStyle(fontWeight: FontWeight.bold)))),
-                      DataColumn(label: Expanded(child: Text('Nazwa (Spider)', style: TextStyle(fontWeight: FontWeight.bold)))),
-                      DataColumn(label: Expanded(child: Text('Klient', style: TextStyle(fontWeight: FontWeight.bold)))),
-                      DataColumn(label: Expanded(child: Text('Docelowy Sklep', style: TextStyle(fontWeight: FontWeight.bold)))),
-                      DataColumn(label: Expanded(child: Text('Ostatni Status', style: TextStyle(fontWeight: FontWeight.bold)))),
-                      DataColumn(label: Expanded(child: Text('Ostatnie Uruchomienie', style: TextStyle(fontWeight: FontWeight.bold)))),
-                      DataColumn(label: Expanded(child: Text('Akcje', style: TextStyle(fontWeight: FontWeight.bold)))),
+                    columns: [
+                      DataColumn(label: const Expanded(child: Text('ID', style: TextStyle(fontWeight: FontWeight.bold))), onSort: _onSort),
+                      DataColumn(label: const Expanded(child: Text('Nazwa (Spider)', style: TextStyle(fontWeight: FontWeight.bold))), onSort: _onSort),
+                      DataColumn(label: const Expanded(child: Text('Klient', style: TextStyle(fontWeight: FontWeight.bold))), onSort: _onSort),
+                      const DataColumn(label: Expanded(child: Text('Ostatni Status', style: TextStyle(fontWeight: FontWeight.bold)))),
+                      DataColumn(label: const Expanded(child: Text('Ostatnie Uruchomienie', style: TextStyle(fontWeight: FontWeight.bold))), onSort: _onSort),
                     ],
-                    rows: _scrapers.map((s) {
+                    rows: filteredScrapers.map<DataRow>((s) {
                       final status = s['last_run_status'] ?? 'Brak uruchomień';
                       Color statusColor = colorScheme.onSurfaceVariant;
                       if (status == 'success') statusColor = colorScheme.primary;
@@ -1432,43 +1498,35 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                           ? DateTime.parse(s['last_run_time']).toLocal().toString().substring(0, 16)
                           : '-';
 
-                      return DataRow(cells: [
-                        DataCell(Text(s['id'].toString())),
-                        DataCell(Text(s['spider_name'] ?? '-')),
-                        DataCell(Text(s['client_name'] ?? '-')),
-                        DataCell(Text(s['competitor_name'] ?? s['competitor_url'] ?? '-')),
-                        DataCell(
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: statusColor.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
+                      return DataRow(
+                        onSelectChanged: (_) {
+                          Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => AdminScraperLogsScreen(
+                              scraperId: s['id'],
+                              spiderName: s['spider_name'],
                             ),
-                            child: Text(
-                              status,
-                              style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ),
-                        DataCell(Text(lastRunTime)),
-                        DataCell(
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(MaterialPageRoute(
-                                builder: (_) => AdminScraperLogsScreen(
-                                  scraperId: s['id'],
-                                  spiderName: s['spider_name'],
-                                ),
-                              ));
-                            },
-                            icon: const Icon(Icons.history, size: 16),
-                            label: const Text('Logi'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ));
+                        },
+                        cells: [
+                          DataCell(Text(s['id'].toString())),
+                          DataCell(Text(s['spider_name'] ?? '-')),
+                          DataCell(Text(s['client_name'] ?? '-')),
+                          DataCell(
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: statusColor.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                status,
+                                style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ),
-                        ),
-                      ]);
+                          DataCell(Text(lastRunTime)),
+                        ]
+                      );
                     }).toList(),
                   ),
                 ),
