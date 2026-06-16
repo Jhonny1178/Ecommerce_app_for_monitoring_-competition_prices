@@ -213,8 +213,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     final num? priceNormal = _toNum(_product?['price_normal']);
     final num? priceSpecial = _toNum(_product?['price_special']);
     
-    final String rawImage = _product?['image']?.toString() ?? '';
-    final String imageUrl = rawImage.startsWith('/api/') ? '${ApiClient.baseUrl}$rawImage' : rawImage;
+    final String imageUrl = _product?['image']?.toString() ?? '';
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -357,8 +356,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   final num? price = _toNum(comp['comp_price_special'] ?? comp['comp_price_normal'] ?? comp['price_special'] ?? comp['price_normal']);
                   final String url = comp['url']?.toString() ?? '';
                   
-                  final String rawImage = comp['image']?.toString() ?? '';
-                  final String imageUrl = rawImage.startsWith('/api/') ? '${ApiClient.baseUrl}$rawImage' : rawImage;
+                  final String imageUrl = comp['image']?.toString() ?? '';
                   
                   final num? priceDifference = _toNum(comp['price_difference']);
 
