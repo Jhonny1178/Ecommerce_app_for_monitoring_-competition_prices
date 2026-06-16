@@ -698,7 +698,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     else
                       ..._apiUsage.map((key) {
                         final isExhausted = key['is_exhausted'] == true;
-                        final tokens = key['total_tokens'] ?? 0;
+                        
+                        // ZMIANA TUTAJ: BEZPIECZNE PARSOWANIE TOKENÓW Z JSONA
+                        final tokens = int.tryParse(key['total_tokens']?.toString() ?? '0') ?? 0;
+                        
                         final keyName = key['key_name'] ?? 'Nieznany';
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12.0),
@@ -712,12 +715,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                   if (isExhausted)
                                     const Text('WYCZERPANY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red))
                                   else
-                                    Text('Aktywny', style: TextStyle(fontSize: 10, color: Colors.green)),
+                                    const Text('Aktywny', style: TextStyle(fontSize: 10, color: Colors.green)),
                                 ],
                               ),
                               const SizedBox(height: 4),
                               LinearProgressIndicator(
-                                value: isExhausted ? 1.0 : (tokens / 500000).clamp(0.0, 1.0), // Przyjęty wizualny max np. 500k
+                                value: isExhausted ? 1.0 : (tokens / 500000).clamp(0.0, 1.0),
                                 backgroundColor: colorScheme.surfaceContainerHighest,
                                 color: isExhausted ? Colors.red : colorScheme.primary,
                                 minHeight: 6,

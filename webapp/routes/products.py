@@ -935,7 +935,13 @@ def api_product_recommend(product_id):
             price = c.get("price_special") or c.get("price_normal")
             if price is not None:
                 prices.append(float(price))
-                
+
+        if not prices:
+            return jsonify({
+                "ok": False, 
+                "error": "Brak danych rynkowych. Model AI potrzebuje ofert konkurencji, aby przeanalizować cenę."
+            }), 400
+
         our_price = float(product_dict.get("price_special") or product_dict.get("price_normal") or 0.0)
 
         payload = {
@@ -947,16 +953,19 @@ def api_product_recommend(product_id):
         import requests
         response = requests.post("http://recommendation_service:8000/api/oblicz-cene", json=payload, timeout=30)
         
-        if response.status_code == 200:
-            data = response.json()
+        if response.status_code != 200:
             return jsonify({
-                "ok": True,
-                "recommendation": data.get("cena_ostateczna"),
-                "reason": data.get("uzasadnienie")
-            })
-        else:
-            return jsonify({"ok": False, "error": f"Błąd silnika AI: {response.text}"}), 502
-
+                "ok": False, 
+                "error": f"AI Serwis odrzucił żądanie (Kod {response.status_code}): {response.text}"
+            }), 502
+            
+        data = response.json()
+        return jsonify({
+            "ok": True,
+            "recommendation": data.get("cena_ostateczna"),
+            "reason": data.get("uzasadnienie")
+        })
+    
     except Exception as e:
         import traceback
         traceback.print_exc()

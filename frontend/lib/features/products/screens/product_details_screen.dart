@@ -75,6 +75,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     }
   }
 
+  // ---- NAPRAWIONA FUNKCJA Z OBSŁUGĄ BŁĘDÓW ----
   Future<void> _getRecommendation() async {
     if (mounted) setState(() => _isRecommending = true);
     try {
@@ -91,10 +92,24 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 : double.tryParse(rawRecommendation?.toString() ?? '');
             _recommendationReason = data['reason']?.toString();
           });
+        } else if (mounted) {
+          // Jeśli Python zwróci błąd, wyświetlimy go na czerwonym pasku!
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Błąd AI: ${data['error'] ?? 'Nieznany błąd'}'), backgroundColor: Colors.red),
+          );
         }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Błąd serwera (HTTP ${response.statusCode})'), backgroundColor: Colors.red),
+        );
       }
     } catch (e) {
       debugPrint("Błąd AI: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Błąd połączenia: $e'), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isRecommending = false);
     }
@@ -111,7 +126,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         title: Text("Szczegóły produktu", style: GoogleFonts.overpass(fontWeight: FontWeight.w600)),
         backgroundColor: colorScheme.surface,
         elevation: 0,
-        centerTitle: false, // Wyrównanie do lewej i naturalny margines od strzałki!
+        centerTitle: false,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -172,9 +187,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                           ),
                         ),
                       ] else ...[
+                        // Wyświetlamy panel AI obok specyfikacji nawet dla produktów bez konkurencji
                         Expanded(
                           child: SingleChildScrollView(
-                            child: _buildSpecificationTab(colorScheme),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(flex: 2, child: _buildSpecificationTab(colorScheme)),
+                                const SizedBox(width: 32),
+                                Expanded(flex: 1, child: _buildRecommendationSection(colorScheme)),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -189,7 +212,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     final String sku = _product?['sku']?.toString() ?? 'N/A';
     final num? priceNormal = _toNum(_product?['price_normal']);
     final num? priceSpecial = _toNum(_product?['price_special']);
-    final String imageUrl = _product?['image']?.toString() ?? '';
+    
+    final String rawImage = _product?['image']?.toString() ?? '';
+    final String imageUrl = rawImage.startsWith('/api/') ? '${ApiClient.baseUrl}$rawImage' : rawImage;
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -252,7 +277,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
-  // Czysta, elegancka tabela specyfikacji z tzw. Zebra Striping
   Widget _buildSpecificationTab(ColorScheme colorScheme) {
     final String category = _product?['category']?.toString() ?? '-';
     final String manufacturer = _product?['manufacturer']?.toString() ?? '-';
@@ -287,7 +311,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
-  // Wiersz tabeli specyfikacji z naprzemiennym tłem
   Widget _buildSimpleSpecRow(String label, String value, bool isEven, ColorScheme colorScheme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -333,7 +356,10 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   final String shopName = comp['shop_label']?.toString() ?? comp['store']?.toString() ?? 'Nieznany sklep';
                   final num? price = _toNum(comp['comp_price_special'] ?? comp['comp_price_normal'] ?? comp['price_special'] ?? comp['price_normal']);
                   final String url = comp['url']?.toString() ?? '';
-                  final String imageUrl = comp['image']?.toString() ?? '';
+                  
+                  final String rawImage = comp['image']?.toString() ?? '';
+                  final String imageUrl = rawImage.startsWith('/api/') ? '${ApiClient.baseUrl}$rawImage' : rawImage;
+                  
                   final num? priceDifference = _toNum(comp['price_difference']);
 
                   return Padding(
@@ -429,6 +455,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
 
   Widget _buildRecommendationSection(ColorScheme colorScheme) {
     final hasPremium = _subscriptionPlan == 'Premium';
+    
+    final hasMatches = _competitors.isNotEmpty; 
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -462,19 +491,31 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
               Text(_recommendationReason ?? "", style: TextStyle(fontSize: 13, height: 1.5, color: colorScheme.onSecondaryContainer)),
               const SizedBox(height: 24),
             ] else ...[
-              Text("Model AI jest gotowy do analizy tego produktu.", style: TextStyle(fontSize: 13, height: 1.5, color: colorScheme.onSecondaryContainer.withOpacity(0.8))),
+              Text(
+                hasMatches 
+                  ? "Model AI jest gotowy do analizy tego produktu." 
+                  : "Model AI nie ma danych rynkowych dla tego produktu.", 
+                style: TextStyle(fontSize: 13, height: 1.5, color: colorScheme.onSecondaryContainer.withOpacity(0.8))
+              ),
               const SizedBox(height: 24),
             ],
             FilledButton.icon(
-              onPressed: _isRecommending ? null : _getRecommendation,
+              onPressed: _isRecommending || !hasMatches ? null : _getRecommendation,
               style: FilledButton.styleFrom(
                 backgroundColor: colorScheme.secondary,
                 foregroundColor: colorScheme.onSecondary,
                 padding: const EdgeInsets.symmetric(vertical: 18),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
-              icon: _isRecommending ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Icon(Icons.psychology),
-              label: Text(_isRecommending ? "Analizowanie..." : "Generuj cenę", style: const TextStyle(fontWeight: FontWeight.bold)),
+              icon: _isRecommending 
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                  : (hasMatches ? const Icon(Icons.psychology) : const Icon(Icons.block)),
+              label: Text(
+                _isRecommending 
+                    ? "Analizowanie..." 
+                    : (hasMatches ? "Generuj cenę" : "Brak ofert z rynku"), 
+                style: const TextStyle(fontWeight: FontWeight.bold)
+              ),
             ),
           ],
         ],
