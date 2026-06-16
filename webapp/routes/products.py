@@ -717,10 +717,7 @@ def api_products():
     prefix = _get_store_prefix()
 
     if not prefix:
-        return jsonify({
-            "ok": False,
-            "error": "Brak zdefiniowanego sklepu w sesji użytkownika"
-        }), 401
+        return jsonify({"ok": False, "error": "Brak zdefiniowanego sklepu w sesji"}), 401
 
     products_table = f"{prefix}_products"
     matches_table = f"{prefix}_matches"
@@ -731,44 +728,27 @@ def api_products():
     order = request.args.get("order", "asc").upper()
     search_query = request.args.get("search", "").strip()
     matched_only = request.args.get("matched_only", "false").lower() == "true"
+    
+    category = request.args.get("category", "").strip()
+    min_matches = request.args.get("min_matches", type=int)
 
-    allowed_sort_columns = [
-        "id",
-        "sku",
-        "name",
-        "price_normal",
-        "price_special",
-        "category",
-        "store",
-        "availability",
-    ]
-
-    if sort_by not in allowed_sort_columns:
-        sort_by = "id"
-
-    if order not in ["ASC", "DESC"]:
-        order = "ASC"
+    allowed_sort_columns = ["id", "sku", "name", "price_normal", "price_special", "category", "store", "availability"]
+    if sort_by not in allowed_sort_columns: sort_by = "id"
+    if order not in ["ASC", "DESC"]: order = "ASC"
 
     offset = (page - 1) * per_page
-
     where_parts = []
     params = []
 
     if search_query:
         where_parts.append(sql.SQL("""
-            (
-                p.name ILIKE %s
-                OR p.sku ILIKE %s
-                OR p.category ILIKE %s
-                OR p.manufacturer ILIKE %s
-            )
+            (p.name ILIKE %s OR p.sku ILIKE %s OR p.category ILIKE %s OR p.manufacturer ILIKE %s)
         """))
-        params.extend([
-            f"%{search_query}%",
-            f"%{search_query}%",
-            f"%{search_query}%",
-            f"%{search_query}%",
-        ])
+        params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
+
+    if category:
+        where_parts.append(sql.SQL("p.category = %s"))
+        params.append(category)
 
     conn = None
     cursor = None
@@ -778,62 +758,42 @@ def api_products():
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         if not _table_exists(cursor, products_table):
-            return jsonify({
-                "ok": True,
-                "data": [],
-                "pagination": {
-                    "total_items": 0,
-                    "current_page": page,
-                    "per_page": per_page,
-                    "total_pages": 1,
-                }
-            })
+            return jsonify({"ok": True, "data": [], "pagination": {"total_items": 0, "current_page": page, "per_page": per_page, "total_pages": 1}})
 
         if matched_only:
             where_parts.append(_get_matched_products_filter(cursor, matches_table))
+
+        if min_matches and min_matches > 0 and _table_exists(cursor, matches_table):
+            match_columns = _get_columns(cursor, matches_table)
+            has_competitor_sql = _flat_has_competitor_sql(match_columns)
+
+            if "product_id" in match_columns:
+                if "competitor_product_id" in match_columns:
+                    where_parts.append(sql.SQL("p.id IN (SELECT product_id FROM {} WHERE competitor_product_id IS NOT NULL GROUP BY product_id HAVING COUNT(*) >= %s)").format(sql.Identifier(matches_table)))
+                else:
+                    where_parts.append(sql.SQL("p.id IN (SELECT product_id FROM {} GROUP BY product_id HAVING COUNT(*) >= %s)").format(sql.Identifier(matches_table)))
+                params.append(min_matches)
+            elif has_competitor_sql is not None and "client_sku" in match_columns:
+                where_parts.append(sql.SQL("p.sku IN (SELECT client_sku FROM {} WHERE {} GROUP BY client_sku HAVING COUNT(*) >= %s)").format(sql.Identifier(matches_table), has_competitor_sql))
+                params.append(min_matches)
+            elif has_competitor_sql is not None and "product_sku" in match_columns:
+                where_parts.append(sql.SQL("p.sku IN (SELECT product_sku FROM {} WHERE {} GROUP BY product_sku HAVING COUNT(*) >= %s)").format(sql.Identifier(matches_table), has_competitor_sql))
+                params.append(min_matches)
+            else:
+                where_parts.append(sql.SQL("FALSE"))
 
         where_sql = sql.SQL("")
         if where_parts:
             where_sql = sql.SQL("WHERE ") + sql.SQL(" AND ").join(where_parts)
 
-        count_query = sql.SQL("""
-            SELECT COUNT(p.id) AS total
-            FROM {} p
-            {}
-        """).format(
-            sql.Identifier(products_table),
-            where_sql,
-        )
-
+        count_query = sql.SQL("SELECT COUNT(p.id) AS total FROM {} p {}").format(sql.Identifier(products_table), where_sql)
         cursor.execute(count_query, params)
         total_items = cursor.fetchone()["total"]
 
         query = sql.SQL("""
-            SELECT
-                p.id,
-                p.sku,
-                p.name,
-                p.size,
-                p.color,
-                p.manufacturer,
-                p.category,
-                p.price_normal,
-                p.price_special,
-                p.store,
-                p.availability,
-                p.url,
-                p.image,
-                p.description
-            FROM {} p
-            {}
-            ORDER BY {} {}
-            LIMIT %s OFFSET %s
-        """).format(
-            sql.Identifier(products_table),
-            where_sql,
-            sql.Identifier(sort_by),
-            sql.SQL(order),
-        )
+            SELECT p.id, p.sku, p.name, p.size, p.color, p.manufacturer, p.category, p.price_normal, p.price_special, p.store, p.availability, p.url, p.image, p.description
+            FROM {} p {} ORDER BY {} {} LIMIT %s OFFSET %s
+        """).format(sql.Identifier(products_table), where_sql, sql.Identifier(sort_by), sql.SQL(order))
 
         cursor.execute(query, params + [per_page, offset])
         products = [dict(row) for row in cursor.fetchall()]
@@ -844,25 +804,14 @@ def api_products():
         return jsonify({
             "ok": True,
             "data": products,
-            "pagination": {
-                "total_items": total_items,
-                "current_page": page,
-                "per_page": per_page,
-                "total_pages": math.ceil(total_items / per_page) if total_items > 0 else 1,
-            }
+            "pagination": {"total_items": total_items, "current_page": page, "per_page": per_page, "total_pages": math.ceil(total_items / per_page) if total_items > 0 else 1}
         })
 
     except Exception as e:
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 500
-
+        return jsonify({"ok": False, "error": str(e)}), 500
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 
 @products_bp.route("/api/products/<int:product_id>")

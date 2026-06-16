@@ -74,6 +74,8 @@ x-airflow-common:
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     # The following line can be used to set a custom config file, stored in the local config folder
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
+    APP_DB_HOST: 'ecommerce-db'
+    APP_DB_PORT: '5432'
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./processors:/opt/airflow/dags/processors

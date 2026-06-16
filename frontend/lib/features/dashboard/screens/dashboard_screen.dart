@@ -224,7 +224,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ],
                             ),
                           ),
-                          // Zakładka 2: Płatności z dodanym anulowaniem
+                          // Zakładka 2: Płatności
                           Padding(
                             padding: const EdgeInsets.all(32.0),
                             child: Column(
@@ -487,7 +487,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ] else if (_selectedTabIndex == 1) ...[
                       const SizedBox(
                         height: 800,
-                        child: ProductsListScreen(),
+                        child: ProductsListScreen(matchedOnly: true), // POKAZUJE TYLKO ZMATCHOWANE
+                      ),
+                    ] else if (_selectedTabIndex == 2) ...[
+                      const SizedBox(
+                        height: 800,
+                        child: ProductsListScreen(matchedOnly: false), // POKAZUJE WSZYSTKIE
                       ),
                     ],
                   ],
@@ -606,7 +611,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _buildTabButton('Dashboard', 0, colorScheme),
-          _buildTabButton('Produkty', 1, colorScheme),
+          _buildTabButton('Zmatchowane produkty', 1, colorScheme),
+          _buildTabButton('Wszystkie produkty', 2, colorScheme),
         ],
       ),
     );
@@ -689,16 +695,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final totalStores = _asInt(_stats['total_stores']);
     final totalClientProducts = _asInt(_stats['total_client_products']);
     final totalCompetitorProducts = _asInt(_stats['total_competitor_products']);
-
     final ourCheaper = _asInt(_stats['our_price_lower_count']);
     final ourMoreExpensive = _asInt(_stats['our_price_higher_count']);
     final samePrice = _asInt(_stats['same_price_count']);
-
     final avgClientPrice = _formatMoney(_stats['avg_client_price']);
     final avgCompetitorPrice = _formatMoney(_stats['avg_competitor_price']);
     final avgDiff = _formatSignedMoney(_stats['avg_difference_competitor_minus_ours']);
-    final maxSaving = _formatMoney(_stats['max_saving_when_ours_cheaper']);
-    final maxLoss = _formatMoney(_stats['max_loss_when_ours_expensive']);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -769,8 +771,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 totalCompetitorProducts: totalCompetitorProducts,
                 avgClientPrice: avgClientPrice,
                 avgCompetitorPrice: avgCompetitorPrice,
-                maxSaving: maxSaving,
-                maxLoss: maxLoss,
               ),
             ),
           ],
@@ -787,8 +787,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required ColorScheme colorScheme,
   }) {
     return Container(
-      height: 165,
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(22),
@@ -807,56 +806,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  icon,
-                  color: colorScheme.onPrimaryContainer,
-                  size: 22,
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              const Spacer(),
-              Icon(
-                Icons.trending_up,
-                color: colorScheme.primary.withOpacity(0.75),
-                size: 20,
-              ),
+              Icon(icon, color: colorScheme.primary, size: 20),
             ],
           ),
-          const Spacer(),
-          Text(
-            title,
-            style: TextStyle(
-              color: colorScheme.onSurfaceVariant,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Text(
             value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.w800,
-              height: 1,
+            style: TextStyle(
+              color: colorScheme.onSurface,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: colorScheme.onSurfaceVariant,
-              fontSize: 12,
+              color: colorScheme.onSurfaceVariant.withOpacity(0.8),
+              fontSize: 11,
             ),
           ),
         ],
@@ -890,18 +869,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.analytics_outlined, color: colorScheme.primary),
-              const SizedBox(width: 10),
-              const Text(
-                'Pozycja cenowa względem rynku',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
+          // USUNIĘTO IKONĘ
+          const Text(
+            'Pozycja cenowa względem rynku',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -917,7 +891,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             label: 'Nasza cena niższa',
             value: ourCheaper,
             percent: percent(ourCheaper),
-            icon: Icons.south_west,
           ),
           const SizedBox(height: 16),
           _buildPriceBar(
@@ -925,7 +898,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             label: 'Nasza cena wyższa',
             value: ourMoreExpensive,
             percent: percent(ourMoreExpensive),
-            icon: Icons.north_east,
           ),
           const SizedBox(height: 16),
           _buildPriceBar(
@@ -933,7 +905,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             label: 'Cena taka sama',
             value: samePrice,
             percent: percent(samePrice),
-            icon: Icons.drag_handle,
           ),
           const SizedBox(height: 24),
           Container(
@@ -945,8 +916,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             child: Row(
               children: [
-                Icon(Icons.show_chart, color: colorScheme.primary),
-                const SizedBox(width: 12),
+                // USUNIĘTO IKONĘ Z RZĘDU WYNIKOWEGO
                 Text(
                   'Średnia różnica rynku:',
                   style: TextStyle(
@@ -971,61 +941,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // ZAKTUALIZOWANA METODA BEZ IKON
   Widget _buildPriceBar({
     required ColorScheme colorScheme,
     required String label,
     required int value,
     required double percent,
-    required IconData icon,
   }) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(
-            icon,
-            color: colorScheme.onPrimaryContainer,
-            size: 20,
-          ),
+        Row(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              value.toString(),
+              style: const TextStyle(
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    value.toString(),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  value: percent.clamp(0.0, 1.0),
-                  minHeight: 9,
-                  backgroundColor: colorScheme.surface,
-                  color: colorScheme.primary,
-                ),
-              ),
-            ],
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: percent.clamp(0.0, 1.0),
+            minHeight: 9,
+            backgroundColor: colorScheme.surface,
+            color: colorScheme.primary,
           ),
         ),
       ],
@@ -1038,8 +988,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required int totalCompetitorProducts,
     required String avgClientPrice,
     required String avgCompetitorPrice,
-    required String maxSaving,
-    required String maxLoss,
   }) {
     return Container(
       padding: const EdgeInsets.all(24),
@@ -1053,81 +1001,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.insights, color: colorScheme.onPrimaryContainer),
-              const SizedBox(width: 10),
-              Text(
-                'Szybki obraz rynku',
-                style: TextStyle(
-                  color: colorScheme.onPrimaryContainer,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
+          // USUNIĘTO IKONĘ
+          Text(
+            'Szybki obraz rynku',
+            style: TextStyle(
+              color: colorScheme.onPrimaryContainer,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
           ),
           const SizedBox(height: 20),
           _buildSnapshotRow(
             colorScheme,
             'Produkty klienta',
             totalClientProducts.toString(),
-            Icons.inventory_2_outlined,
           ),
           _buildSnapshotRow(
             colorScheme,
             'Produkty konkurencji',
             totalCompetitorProducts.toString(),
-            Icons.store_outlined,
           ),
           _buildSnapshotRow(
             colorScheme,
             'Średnia cena klienta',
             avgClientPrice,
-            Icons.sell_outlined,
           ),
           _buildSnapshotRow(
             colorScheme,
             'Średnia cena konkurencji',
             avgCompetitorPrice,
-            Icons.payments_outlined,
-          ),
-          const SizedBox(height: 12),
-          Divider(color: colorScheme.onPrimaryContainer.withOpacity(0.2)),
-          const SizedBox(height: 12),
-          _buildSnapshotRow(
-            colorScheme,
-            'Największa przewaga cenowa',
-            maxSaving,
-            Icons.trending_down,
-          ),
-          _buildSnapshotRow(
-            colorScheme,
-            'Największe ryzyko cenowe',
-            maxLoss,
-            Icons.warning_amber_rounded,
           ),
         ],
       ),
     );
   }
 
+  // ZAKTUALIZOWANA METODA BEZ IKON
   Widget _buildSnapshotRow(
     ColorScheme colorScheme,
     String label,
     String value,
-    IconData icon,
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Row(
         children: [
-          Icon(
-            icon,
-            size: 20,
-            color: colorScheme.onPrimaryContainer.withOpacity(0.8),
-          ),
-          const SizedBox(width: 10),
           Expanded(
             child: Text(
               label,
