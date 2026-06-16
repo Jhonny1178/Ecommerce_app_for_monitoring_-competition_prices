@@ -352,7 +352,14 @@ services:
     volumes:
       - ./price-recomendation:/app
     environment:
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      - APP_DB_HOST=ecommerce-db
+      - APP_DB_PORT=5432
+      - APP_DB_NAME=${APP_DB_NAME}
+      - APP_DB_USER=${APP_DB_USER}
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD}
+      - GROQ_API_KEY_1=${GROQ_API_KEY_1}
+      - GROQ_API_KEY_2=${GROQ_API_KEY_2}
+      - GROQ_API_KEY_3=${GROQ_API_KEY_3}
     restart: always
 
   flower:
@@ -394,7 +401,9 @@ services:
       - APP_DB_NAME=${APP_DB_NAME}
       - APP_DB_USER=${APP_DB_USER}
       - APP_DB_PASSWORD=${APP_DB_PASSWORD}
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_API_KEY_1=${GROQ_API_KEY_1}
+      - GROQ_API_KEY_2=${GROQ_API_KEY_2}
+      - GROQ_API_KEY_3=${GROQ_API_KEY_3}
       - SPIDERS_DIR=/opt/ecommerce_price_comparer/spiders
     restart: always
     depends_on:

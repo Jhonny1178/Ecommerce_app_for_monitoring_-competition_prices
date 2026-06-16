@@ -1,7 +1,7 @@
 import json
 import re
 import os
-from groq import Groq
+from core.groq_manager import GroqManager
 
 def generate_scraper_from_html(html_file_path: str, output_json_path: str):
     try:
@@ -11,13 +11,7 @@ def generate_scraper_from_html(html_file_path: str, output_json_path: str):
         print(f"Nie znaleziono pliku {html_file_path}.")
         return
 
-
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        print("\n[BŁĄD KRYTYCZNY] Brak klucza GROQ_API_KEY w pliku .env!")
-        return
-
-    client = Groq(api_key=api_key)
+    manager = GroqManager()
 
     system_prompt = """
     Jesteś wybitnym inżynierem danych. Twoim zadaniem jest stworzenie "Mapy Selektorów CSS" dla podanego kodu HTML strony produktowej.
@@ -64,16 +58,20 @@ def generate_scraper_from_html(html_file_path: str, output_json_path: str):
 
     try:
         print("Wysyłam żądanie do API Groq. Analiza HTML i generowanie Mapy Selektorów...")
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            model="llama-3.3-70b-versatile",
-            response_format={"type": "json_object"},
-            temperature=0.0,
-            max_tokens=2000
-        )
+        
+        def _call_groq(client):
+            return client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                model="llama-3.3-70b-versatile",
+                response_format={"type": "json_object"},
+                temperature=0.0,
+                max_tokens=2000
+            )
+
+        chat_completion = manager.execute_with_fallback(_call_groq)
 
         response_text = chat_completion.choices[0].message.content
 

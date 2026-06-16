@@ -2232,3 +2232,39 @@ def review_error_log(log_id):
             "ok": False,
             "error": str(e)
         }), 500
+
+# ----------------------------------------------------------------------
+# GROQ API USAGE
+# ----------------------------------------------------------------------
+@auth_bp.route("/api/admin/api-usage", methods=["GET"])
+@admin_required
+def get_api_usage():
+    conn = get_db()
+    if not conn:
+        return jsonify({"error": "Błąd połączenia z bazą"}), 500
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT key_name, total_tokens, is_exhausted, last_used, exhausted_at
+            FROM api_keys_usage
+            ORDER BY key_name ASC
+        """)
+        keys = cur.fetchall()
+        
+        # Konwersja dat do stringa
+        for key in keys:
+            if key['last_used']:
+                key['last_used'] = key['last_used'].isoformat()
+            if key['exhausted_at']:
+                key['exhausted_at'] = key['exhausted_at'].isoformat()
+
+        return jsonify({
+            "ok": True,
+            "keys": keys
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()

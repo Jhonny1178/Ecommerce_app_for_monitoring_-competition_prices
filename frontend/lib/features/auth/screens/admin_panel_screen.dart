@@ -48,12 +48,16 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   int _scrapersSortColumnIndex = 0;
   bool _scrapersSortAscending = true;
 
+  bool _isLoadingApiUsage = true;
+  List<dynamic> _apiUsage = [];
+
   @override
   void initState() {
     super.initState();
     _fetchPendingUsers();
     _fetchScrapers();
     _fetchStores();
+    _fetchApiUsage();
   }
 
   @override
@@ -75,6 +79,21 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       debugPrint("Error fetching users: $e");
     } finally {
       setState(() => _isLoadingUsers = false);
+    }
+  }
+
+  Future<void> _fetchApiUsage() async {
+    setState(() => _isLoadingApiUsage = true);
+    try {
+      final response = await ApiClient.get(Uri.parse("/api/admin/api-usage"));
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['ok'] == true) {
+        setState(() => _apiUsage = data['keys'] ?? []);
+      }
+    } catch (e) {
+      debugPrint("Error fetching API usage: $e");
+    } finally {
+      setState(() => _isLoadingApiUsage = false);
     }
   }
 
@@ -295,6 +314,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     _fetchStores();
     _fetchRegRequests();
     _fetchErrorLogs();
+    _fetchApiUsage();
   }
 
   void _logout() async {
@@ -669,31 +689,46 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   children: [
                     Text('Infrastruktura i zasoby', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
                     const SizedBox(height: 24),
-                    _buildStatusRow('Core Scraper API', 'Operacyjny', colorScheme.primary, colorScheme),
-                    const SizedBox(height: 16),
-                    _buildStatusRow('Moduł AI Generator', 'Operacyjny', colorScheme.primary, colorScheme),
-                    const SizedBox(height: 16),
-                    _buildStatusRow('Główna baza danych', 'Połączono', colorScheme.primary, colorScheme),
-                    const SizedBox(height: 24),
-                    Divider(color: colorScheme.surfaceContainerHighest),
-                    const SizedBox(height: 24),
-                    Text('Zużycie limitów zadań API', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: colorScheme.onSurfaceVariant)),
+                    Text('Zużycie limitów zadań API (Groq)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: colorScheme.onSurfaceVariant)),
                     const SizedBox(height: 12),
-                    LinearProgressIndicator(
-                      value: 0.34,
-                      backgroundColor: colorScheme.surfaceContainerHighest,
-                      color: colorScheme.primary,
-                      minHeight: 8,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('34,210 / 100,000 req', style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant)),
-                        Text('34%', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: colorScheme.primary)),
-                      ],
-                    )
+                    if (_isLoadingApiUsage)
+                      const Center(child: CircularProgressIndicator())
+                    else if (_apiUsage.isEmpty)
+                      const Text('Brak danych o zużyciu API')
+                    else
+                      ..._apiUsage.map((key) {
+                        final isExhausted = key['is_exhausted'] == true;
+                        final tokens = key['total_tokens'] ?? 0;
+                        final keyName = key['key_name'] ?? 'Nieznany';
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(keyName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isExhausted ? Colors.red : colorScheme.onSurfaceVariant)),
+                                  if (isExhausted)
+                                    const Text('WYCZERPANY', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red))
+                                  else
+                                    Text('Aktywny', style: TextStyle(fontSize: 10, color: Colors.green)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              LinearProgressIndicator(
+                                value: isExhausted ? 1.0 : (tokens / 500000).clamp(0.0, 1.0), // Przyjęty wizualny max np. 500k
+                                backgroundColor: colorScheme.surfaceContainerHighest,
+                                color: isExhausted ? Colors.red : colorScheme.primary,
+                                minHeight: 6,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              const SizedBox(height: 4),
+                              Text('$tokens tokenów użytych', style: TextStyle(fontSize: 10, color: colorScheme.onSurfaceVariant)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
                   ],
                 ),
               ),

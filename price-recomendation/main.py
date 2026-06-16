@@ -4,13 +4,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from groq import Groq
+from groq_manager import GroqManager
 
 from algorytm import ustal_cene
 
 load_dotenv()
-
-API_KEY = os.getenv("GROQ_API_KEY")
 
 app = FastAPI()
 
@@ -34,7 +32,7 @@ with open("algorytm.py", "r", encoding="utf-8") as f:
 
 
 def skonsultuj_z_llm(nazwa, liczby, nasza_cena, cena_z_algorytmu, kod_algorytmu):
-    client = Groq(api_key=API_KEY)
+    manager = GroqManager()
 
     prompt = f"""
     Przeanalizuj dane cenowe dla produktu: "{nazwa}"
@@ -56,16 +54,25 @@ def skonsultuj_z_llm(nazwa, liczby, nasza_cena, cena_z_algorytmu, kod_algorytmu)
         "uzasadnienie": "<tekst>"
     }}
     """
-    chat_completion = client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": "Jesteś ekspertem ds. strategii cenowych. Odpowiadasz tylko w JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        model="llama-3.3-70b-versatile",
-        response_format={"type": "json_object"},
-        temperature=0.2
-    )
-    return json.loads(chat_completion.choices[0].message.content)
+    
+    def _call_groq(client):
+        return client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "Jesteś ekspertem ds. strategii cenowych. Odpowiadasz tylko w JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"},
+            temperature=0.2
+        )
+        
+    try:
+        chat_completion = manager.execute_with_fallback(_call_groq)
+        return json.loads(chat_completion.choices[0].message.content)
+    except Exception as e:
+        if "Wszystkie klucze API Groq zostały wykorzystane" in str(e):
+            return {"cena_ostateczna": cena_z_algorytmu, "uzasadnienie": "Chwilowo ta usługa AI jest niedostępna z powodu limitów API. Użyto surowego wyniku algorytmu matematycznego."}
+        raise e
 
 
 @app.post("/api/oblicz-cene")
