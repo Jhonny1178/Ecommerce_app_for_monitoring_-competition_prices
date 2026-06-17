@@ -31,6 +31,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _repeatPasswordError;
   bool _isChangingPassword = false;
   Map<String, dynamic> _stats = {};
+  int _refreshCounter = 0;
 
   @override
   void initState() {
@@ -107,7 +108,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _refreshData() {
-    setState(() => _isLoadingStats = true);
+    setState(() {
+      _isLoadingStats = true;
+      _refreshCounter++;
+    });
     _fetchStats();
     _checkUserStatus();
   }
@@ -485,14 +489,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ? const Center(child: CircularProgressIndicator())
                           : _buildKpiSection(colorScheme),
                     ] else if (_selectedTabIndex == 1) ...[
-                      const SizedBox(
+                      SizedBox(
                         height: 800,
-                        child: ProductsListScreen(matchedOnly: true), // POKAZUJE TYLKO ZMATCHOWANE
+                        child: ProductsListScreen(key: ValueKey('matched_$_refreshCounter'), matchedOnly: true),
                       ),
                     ] else if (_selectedTabIndex == 2) ...[
-                      const SizedBox(
+                      SizedBox(
                         height: 800,
-                        child: ProductsListScreen(matchedOnly: false), // POKAZUJE WSZYSTKIE
+                        child: ProductsListScreen(key: ValueKey('all_$_refreshCounter'), matchedOnly: false),
                       ),
                     ],
                   ],

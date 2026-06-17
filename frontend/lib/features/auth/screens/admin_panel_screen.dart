@@ -478,6 +478,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     _fetchStores();
     _fetchErrorLogs();
     _fetchApiUsage();
+    _fetchRegRequests();
   }
 
   void _logout() async {
@@ -848,7 +849,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   children: [
                     Text('Infrastruktura i zasoby', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
                     const SizedBox(height: 24),
-                    Text('Zużycie limitów zadań API (Groq)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: colorScheme.onSurfaceVariant)),
+                    Text('Zużycie limitów zadań API', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: colorScheme.onSurfaceVariant)),
                     const SizedBox(height: 12),
                     if (_isLoadingApiUsage)
                       const Center(child: CircularProgressIndicator())

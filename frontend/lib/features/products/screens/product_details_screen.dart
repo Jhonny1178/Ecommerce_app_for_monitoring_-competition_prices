@@ -213,6 +213,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         backgroundColor: colorScheme.surface,
         elevation: 0,
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, size: 28),
+            tooltip: 'Odśwież',
+            onPressed: _fetchDetails,
+          ),
+          const SizedBox(width: 16),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
