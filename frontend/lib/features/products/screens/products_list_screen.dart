@@ -276,7 +276,12 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
   Widget _buildFlatProductRow(dynamic product, ColorScheme colorScheme) {
     final String name = product['name']?.toString() ?? 'Brak nazwy';
     final String sku = product['sku']?.toString() ?? 'N/A';
-    final num? price = _toNum(product['price_special'] ?? product['price_normal']);
+    final num? price = _toNum(
+      product['display_price'] ??
+          product['price'] ??
+          product['price_special'] ??
+          product['price_normal'],
+    );
     final String imageUrl = product['image']?.toString() ?? '';
     final int competitorsCount = int.tryParse('${product['competitors_count'] ?? 0}') ?? 0;
 

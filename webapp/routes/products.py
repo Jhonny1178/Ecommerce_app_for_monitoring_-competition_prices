@@ -94,6 +94,48 @@ def _to_float(value):
     except Exception:
         return None
 
+def _get_current_user_subscription_plan(cur) -> str:
+    user_id = session.get("user_id")
+
+    if not user_id:
+        return "Basic"
+
+    cur.execute("""
+        SELECT subscription_plan
+        FROM users
+        WHERE id = %s
+        LIMIT 1
+    """, (user_id,))
+
+    row = cur.fetchone()
+
+    if not row:
+        return "Basic"
+
+    if isinstance(row, dict):
+        return row.get("subscription_plan") or "Basic"
+
+    return row[0] or "Basic"
+
+
+def _has_price_history_access(subscription_plan: str | None) -> bool:
+    plan = (subscription_plan or "").strip().lower()
+
+    return plan in {
+        "pro",
+        "enterprise",
+        # zostawiam też premium, bo w Twoim kodzie AI wcześniej sprawdzało Premium
+        "premium",
+    }
+
+def _effective_price(price_normal, price_special):
+    special = _to_float(price_special)
+    normal = _to_float(price_normal)
+
+    if special is not None and special > 0:
+        return special
+
+    return normal
 
 def _normalize_image_url(image_url):
     if not image_url:
@@ -138,6 +180,11 @@ def _prepare_product_for_response(product: dict) -> dict:
     item["image_original"] = original_image
     item["image"] = _proxied_image_url(original_image)
 
+    item["display_price"] = _effective_price(
+        item.get("price_normal"),
+        item.get("price_special"),
+    )
+
     return item
 
 
@@ -147,6 +194,11 @@ def _prepare_competitor_for_response(competitor: dict) -> dict:
     original_image = item.get("image")
     item["image_original"] = original_image
     item["image"] = _proxied_image_url(original_image)
+
+    item["display_price"] = _effective_price(
+        item.get("price_normal"),
+        item.get("price_special"),
+    )
 
     return item
 
@@ -346,7 +398,6 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
                 c.url,
                 c.image,
                 m.similarity_score,
-                m.price_difference,
                 m.match_status
             FROM {} m
             LEFT JOIN {} c ON c.id = m.competitor_product_id
@@ -359,10 +410,31 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
         )
 
         cur.execute(query, (product["id"],))
-        return [
-            _prepare_competitor_for_response(dict(row))
-            for row in cur.fetchall()
-        ]
+        rows = []
+
+        product_display_price = _effective_price(
+            product.get("price_normal"),
+            product.get("price_special"),
+        )
+
+        for row in cur.fetchall():
+            item = dict(row)
+
+            competitor_display_price = _effective_price(
+                item.get("price_normal"),
+                item.get("price_special"),
+            )
+
+            item["display_price"] = competitor_display_price
+            item["price_difference"] = (
+                float(competitor_display_price) - float(product_display_price)
+                if competitor_display_price is not None and product_display_price is not None
+                else None
+            )
+
+            rows.append(_prepare_competitor_for_response(item))
+
+        return rows
 
     # Wariant aktualny: matches jest płaską tabelą z files_connector,
     # np. jmbdesing_price, jmbdesing_url, jmbdesing_name.
@@ -418,6 +490,11 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
     match_row = dict(match_row)
     competitors = []
 
+    product_display_price = _effective_price(
+        product.get("price_normal"),
+        product.get("price_special"),
+    )
+
     # Szukamy kolumn typu:
     # calavado_price
     # calavado_url
@@ -434,48 +511,75 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
         if column_name in ("client_price", "product_price", "our_price"):
             continue
 
-        if column_name.startswith("client_") or column_name.startswith("product_") or column_name.startswith("our_"):
+        if (
+            column_name.startswith("client_")
+            or column_name.startswith("product_")
+            or column_name.startswith("our_")
+        ):
             continue
 
         store_name = column_name[:-6]  # usuwa końcówkę "_price"
 
-        price = match_row.get(f"{store_name}_price")
+        match_price = match_row.get(f"{store_name}_price")
         url = match_row.get(f"{store_name}_url")
         name = match_row.get(f"{store_name}_name")
 
-        if price is None and name is None and url is None:
+        if match_price is None and name is None and url is None:
             continue
 
         image = None
         availability = None
         competitor_sku = None
 
+        # Domyślnie bierzemy cenę z matches, ale później nadpisujemy ją pełnymi danymi z competitors_table.
+        competitor_price_normal = match_price
+        competitor_price_special = None
+
         if competitors_exist and url:
             try:
-                image_query = sql.SQL("""
-                    SELECT sku, image, availability
+                extra_query = sql.SQL("""
+                    SELECT
+                        sku,
+                        image,
+                        availability,
+                        price_normal,
+                        price_special
                     FROM {}
                     WHERE url = %s
                     LIMIT 1
                 """).format(sql.Identifier(competitors_table))
 
-                cur.execute(image_query, (url,))
+                cur.execute(extra_query, (url,))
                 extra = cur.fetchone()
 
                 if extra:
                     extra = dict(extra)
+
                     competitor_sku = extra.get("sku")
                     image = extra.get("image")
                     availability = extra.get("availability")
+
+                    if extra.get("price_normal") is not None:
+                        competitor_price_normal = extra.get("price_normal")
+
+                    if extra.get("price_special") is not None:
+                        competitor_price_special = extra.get("price_special")
+
             except Exception:
                 pass
+
+        competitor_display_price = _effective_price(
+            competitor_price_normal,
+            competitor_price_special,
+        )
 
         competitor = {
             "id": None,
             "sku": competitor_sku,
             "name": name or store_name,
-            "price_normal": price,
-            "price_special": None,
+            "price_normal": competitor_price_normal,
+            "price_special": competitor_price_special,
+            "display_price": competitor_display_price,
             "store": store_name,
             "shop_label": store_name,
             "availability": availability,
@@ -483,8 +587,8 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
             "image": image,
             "similarity_score": None,
             "price_difference": (
-                float(price) - float(product["price_normal"])
-                if price is not None and product.get("price_normal") is not None
+                float(competitor_display_price) - float(product_display_price)
+                if competitor_display_price is not None and product_display_price is not None
                 else None
             ),
             "match_status": "matched",
@@ -898,6 +1002,183 @@ def api_product_detail(product_id):
         if conn:
             conn.close()
 
+@products_bp.route("/api/products/<int:product_id>/price-history")
+@login_required
+def api_product_price_history(product_id: int):
+    prefix = _get_store_prefix()
+
+    if not prefix:
+        return jsonify({
+            "ok": False,
+            "error": "Brak zdefiniowanego sklepu w sesji użytkownika"
+        }), 401
+
+    products_table = f"{prefix}_products"
+    matches_table = f"{prefix}_matches"
+    competitors_table = f"{prefix}_competitors"
+    history_table = f"{prefix}_competitors_history"
+
+    conn = None
+    cur = None
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        subscription_plan = _get_current_user_subscription_plan(cur)
+
+        if not _has_price_history_access(subscription_plan):
+            return jsonify({
+                "ok": False,
+                "locked": True,
+                "subscription_plan": subscription_plan,
+                "required_plans": ["Pro", "Enterprise"],
+                "error": "Historia zmian cen jest dostępna od pakietu Pro."
+            }), 403
+
+        if not _table_exists(cur, products_table):
+            return jsonify({
+                "ok": False,
+                "error": f"Tabela produktów {products_table} nie istnieje"
+            }), 404
+
+        if not _table_exists(cur, history_table):
+            return jsonify({
+                "ok": True,
+                "data": [],
+                "message": "Tabela historii cen jeszcze nie istnieje"
+            })
+
+        cur.execute(
+            sql.SQL("""
+                SELECT *
+                FROM {}
+                WHERE id = %s
+                LIMIT 1
+            """).format(sql.Identifier(products_table)),
+            (product_id,)
+        )
+
+        product = cur.fetchone()
+
+        if not product:
+            return jsonify({
+                "ok": False,
+                "error": "Nie znaleziono produktu"
+            }), 404
+
+        product = dict(product)
+
+        competitors = _fetch_competitors_for_product(
+            cur,
+            product,
+            matches_table,
+            competitors_table,
+        )
+
+        if not competitors:
+            return jsonify({
+                "ok": True,
+                "data": [],
+                "message": "Produkt nie ma dopasowanych ofert konkurencji"
+            })
+
+        history_rows = []
+        used_pairs = set()
+
+        for competitor in competitors:
+            competitor_sku = competitor.get("sku")
+            competitor_store = competitor.get("store")
+
+            if not competitor_sku or not competitor_store:
+                continue
+
+            pair_key = (competitor_sku, competitor_store)
+
+            if pair_key in used_pairs:
+                continue
+
+            used_pairs.add(pair_key)
+
+            cur.execute(
+                sql.SQL("""
+                    SELECT
+                        sku,
+                        store,
+                        price_normal_old,
+                        price_normal_new,
+                        price_special_old,
+                        price_special_new,
+                        valid_from,
+                        valid_to,
+                        is_current
+                    FROM {}
+                    WHERE sku = %s
+                      AND store = %s
+                    ORDER BY valid_from DESC
+                """).format(sql.Identifier(history_table)),
+                (competitor_sku, competitor_store)
+            )
+
+            rows = cur.fetchall()
+
+            for row in rows:
+                row = dict(row)
+
+                old_display_price = _effective_price(
+                    row.get("price_normal_old"),
+                    row.get("price_special_old"),
+                )
+
+                new_display_price = _effective_price(
+                    row.get("price_normal_new"),
+                    row.get("price_special_new"),
+                )
+
+                difference = (
+                    round(float(new_display_price) - float(old_display_price), 2)
+                    if old_display_price is not None and new_display_price is not None
+                    else None
+                )
+
+                history_rows.append({
+                    "sku": row.get("sku"),
+                    "store": row.get("store"),
+                    "name": competitor.get("name"),
+                    "url": competitor.get("url"),
+                    "image": competitor.get("image"),
+
+                    "price_normal_old": row.get("price_normal_old"),
+                    "price_normal_new": row.get("price_normal_new"),
+                    "price_special_old": row.get("price_special_old"),
+                    "price_special_new": row.get("price_special_new"),
+
+                    "old_display_price": old_display_price,
+                    "new_display_price": new_display_price,
+                    "difference": difference,
+
+                    "valid_from": row.get("valid_from").isoformat() if row.get("valid_from") else None,
+                    "valid_to": row.get("valid_to").isoformat() if row.get("valid_to") else None,
+                    "is_current": row.get("is_current"),
+                })
+
+        return jsonify({
+            "ok": True,
+            "subscription_plan": subscription_plan,
+            "data": history_rows,
+        })
+
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": str(e)
+        }), 500
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 @products_bp.route("/api/products/<int:product_id>/recommend", methods=["POST"])
 @login_required
