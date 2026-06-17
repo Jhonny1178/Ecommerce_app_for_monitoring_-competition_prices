@@ -1550,6 +1550,9 @@ def admin_user_logs(user_id):
 @auth_bp.route("/api/admin/supported_stores", methods=["GET"])
 @admin_required
 def get_supported_stores():
+    conn = None
+    cur = None
+
     try:
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -1557,21 +1560,22 @@ def get_supported_stores():
         cur.execute("""
             SELECT
                 id,
+                id AS client_id,
                 name AS store_name,
                 slug AS store_domain,
                 CASE
                     WHEN is_active = TRUE THEN 'Aktywny'
                     ELSE 'Wstrzymany'
                 END AS status,
-                TO_CHAR(created_at, 'DD.MM.YYYY') AS added_date
+                TO_CHAR(created_at, 'DD.MM.YYYY') AS added_date,
+                COALESCE(match_name_threshold, 70) AS match_name_threshold,
+                COALESCE(match_color_threshold, 0) AS match_color_threshold,
+                COALESCE(match_maker_threshold, 60) AS match_maker_threshold
             FROM clients
             ORDER BY name ASC
         """)
 
-        stores = cur.fetchall()
-
-        cur.close()
-        conn.close()
+        stores = [dict(row) for row in cur.fetchall()]
 
         return jsonify({
             "ok": True,
@@ -1584,6 +1588,12 @@ def get_supported_stores():
             "ok": False,
             "error": str(e)
         }), 500
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 
 # ============================================================
@@ -2078,6 +2088,100 @@ def api_subscription_cancel():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@auth_bp.route("/api/admin/clients/<int:client_id>/matching-thresholds", methods=["POST"])
+@admin_required
+def api_update_client_matching_thresholds(client_id):
+    if not session.get("is_admin"):
+        return jsonify({
+            "ok": False,
+            "error": "Brak uprawnień administratora"
+        }), 403
+
+    data = request.get_json(silent=True) or {}
+
+    try:
+        match_name_threshold = int(data.get("match_name_threshold", 70))
+        match_color_threshold = int(data.get("match_color_threshold", 0))
+        match_maker_threshold = int(data.get("match_maker_threshold", 60))
+    except Exception:
+        return jsonify({
+            "ok": False,
+            "error": "Progi muszą być liczbami"
+        }), 400
+
+    thresholds = [
+        match_name_threshold,
+        match_color_threshold,
+        match_maker_threshold,
+    ]
+
+    if any(value < 0 or value > 100 for value in thresholds):
+        return jsonify({
+            "ok": False,
+            "error": "Progi muszą być w zakresie 0-100"
+        }), 400
+
+    conn = None
+    cur = None
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            UPDATE clients
+            SET
+                match_name_threshold = %s,
+                match_color_threshold = %s,
+                match_maker_threshold = %s,
+                updated_at = NOW()
+            WHERE id = %s
+            RETURNING
+                id,
+                name,
+                slug,
+                match_name_threshold,
+                match_color_threshold,
+                match_maker_threshold
+        """, (
+            match_name_threshold,
+            match_color_threshold,
+            match_maker_threshold,
+            client_id,
+        ))
+
+        client = cur.fetchone()
+
+        if not client:
+            conn.rollback()
+            return jsonify({
+                "ok": False,
+                "error": "Nie znaleziono klienta"
+            }), 404
+
+        conn.commit()
+
+        return jsonify({
+            "ok": True,
+            "client": dict(client)
+        })
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        return jsonify({
+            "ok": False,
+            "error": str(e)
+        }), 500
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 
 # ============================================================
