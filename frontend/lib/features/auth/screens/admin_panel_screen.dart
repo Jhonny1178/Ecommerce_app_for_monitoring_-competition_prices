@@ -168,6 +168,170 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     }
   }
 
+  Future<void> _showMatchingThresholdsDialog(Map<String, dynamic> store) async {
+    final clientId = store['id'] ?? store['client_id'];
+
+    if (clientId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Brak ID klienta w danych z backendu. Dodaj id/client_id do /api/admin/supported_stores.'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+      return;
+    }
+
+    final nameController = TextEditingController(
+      text: (store['match_name_threshold'] ?? 70).toString(),
+    );
+    final colorController = TextEditingController(
+      text: (store['match_color_threshold'] ?? 0).toString(),
+    );
+    final makerController = TextEditingController(
+      text: (store['match_maker_threshold'] ?? 60).toString(),
+    );
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+
+        return AlertDialog(
+          title: Text('Progi matchowania: ${store['store_name'] ?? store['name'] ?? 'Klient'}'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Ustaw wartości od 0 do 100. Niższy próg oznacza luźniejsze dopasowanie produktów.',
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: nameController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Próg nazwy produktu',
+                    helperText: 'Np. 70',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: colorController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Próg koloru',
+                    helperText: 'Np. 0 jeśli kolor nie ma blokować matchingu',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: makerController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Próg producenta',
+                    helperText: 'Np. 60',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Anuluj'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Zapisz'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != true) {
+      nameController.dispose();
+      colorController.dispose();
+      makerController.dispose();
+      return;
+    }
+
+    final nameThreshold = int.tryParse(nameController.text) ?? 70;
+    final colorThreshold = int.tryParse(colorController.text) ?? 0;
+    final makerThreshold = int.tryParse(makerController.text) ?? 60;
+
+    nameController.dispose();
+    colorController.dispose();
+    makerController.dispose();
+
+    if (
+      nameThreshold < 0 || nameThreshold > 100 ||
+      colorThreshold < 0 || colorThreshold > 100 ||
+      makerThreshold < 0 || makerThreshold > 100
+    ) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Progi muszą być w zakresie 0-100.'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final response = await ApiClient.post(
+        Uri.parse('/api/admin/clients/$clientId/matching-thresholds'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'match_name_threshold': nameThreshold,
+          'match_color_threshold': colorThreshold,
+          'match_maker_threshold': makerThreshold,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 && data['ok'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Zapisano progi matchowania.'),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+          ),
+        );
+
+        await _fetchStores();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(data['error']?.toString() ?? 'Nie udało się zapisać progów.'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error updating matching thresholds: $e");
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Błąd zapisu progów: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _approveRegistrationRequest(
     Map<String, dynamic> req, {
     bool closeDialog = false,
@@ -312,9 +476,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     _fetchPendingUsers();
     _fetchScrapers();
     _fetchStores();
-    _fetchRegRequests();
     _fetchErrorLogs();
     _fetchApiUsage();
+    _fetchRegRequests();
   }
 
   void _logout() async {
@@ -574,11 +738,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
         if (index == 0) _fetchPendingUsers();
         if (index == 1 && _logs.isEmpty) _fetchErrorLogs();
-
-        if (index == 3) {
-          _fetchStores();
-          _fetchRegRequests();
-        }
+        if (index == 3) _fetchStores();
       },
       borderRadius: BorderRadius.circular(20),
       child: Container(
@@ -689,7 +849,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   children: [
                     Text('Infrastruktura i zasoby', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
                     const SizedBox(height: 24),
-                    Text('Zużycie limitów zadań API (Groq)', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: colorScheme.onSurfaceVariant)),
+                    Text('Zużycie limitów zadań API', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: colorScheme.onSurfaceVariant)),
                     const SizedBox(height: 12),
                     if (_isLoadingApiUsage)
                       const Center(child: CircularProgressIndicator())
@@ -698,11 +858,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     else
                       ..._apiUsage.map((key) {
                         final isExhausted = key['is_exhausted'] == true;
-                        
-                        // ZMIANA TUTAJ: BEZPIECZNE PARSOWANIE TOKENÓW Z JSONA
                         final tokens = int.tryParse(key['total_tokens']?.toString() ?? '0') ?? 0;
-                        
                         final keyName = key['key_name'] ?? 'Nieznany';
+
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12.0),
                           child: Column(
@@ -941,14 +1099,13 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text('Aktualnie obsługiwane sklepy', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
+        const SizedBox(height: 8),
+        Text(
+          'Kliknij w klienta, aby ustawić progi matchowania produktów.',
+          style: TextStyle(fontSize: 13, color: colorScheme.onSurfaceVariant),
+        ),
         const SizedBox(height: 16),
         _buildStoresTable(colorScheme),
-
-        const SizedBox(height: 48),
-
-        Text('Wnioski o rejestrację', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorScheme.onSurface)),
-        const SizedBox(height: 16),
-        _buildRegRequestsTable(colorScheme),
       ],
     );
   }
@@ -969,6 +1126,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: DataTable(
+                showCheckboxColumn: false,
                 headingRowColor: WidgetStateProperty.resolveWith((states) => colorScheme.primaryContainer.withOpacity(0.3)),
                 dataRowMaxHeight: 65,
                 columns: const [
@@ -978,13 +1136,16 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   DataColumn(label: Expanded(child: Text('Data dodania', style: TextStyle(fontWeight: FontWeight.bold)))),
                 ],
                 rows: _stores.map((store) {
-                  final bool isActive = store['status'] == 'Aktywny';
+                  final storeMap = Map<String, dynamic>.from(store as Map);
+                  final bool isActive = storeMap['status'] == 'Aktywny';
+
                   return DataRow(
+                    onSelectChanged: (_) => _showMatchingThresholdsDialog(storeMap),
                     cells: [
-                      DataCell(Text(store['store_name'] ?? '-')),
-                      DataCell(Text(store['store_domain'] ?? '-')),
-                      DataCell(Text(store['status'] ?? 'Nieznany', style: TextStyle(color: isActive ? colorScheme.primary : colorScheme.error, fontWeight: FontWeight.bold))),
-                      DataCell(Text(store['added_date'] ?? '-')),
+                      DataCell(Text(storeMap['store_name'] ?? '-')),
+                      DataCell(Text(storeMap['store_domain'] ?? '-')),
+                      DataCell(Text(storeMap['status'] ?? 'Nieznany', style: TextStyle(color: isActive ? colorScheme.primary : colorScheme.error, fontWeight: FontWeight.bold))),
+                      DataCell(Text(storeMap['added_date'] ?? '-')),
                     ],
                   );
                 }).toList(),

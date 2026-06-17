@@ -2,7 +2,7 @@ beautifulsoup4==4.14.3
 fastapi==0.136.3
 groq==1.2.0
 itemadapter==0.13.1
-psycopg2_binary==2.9.12
+psycopg2-binary==2.9.12
 pydantic==2.13.4
 python-dotenv==1.2.2
 Requests==2.34.2
