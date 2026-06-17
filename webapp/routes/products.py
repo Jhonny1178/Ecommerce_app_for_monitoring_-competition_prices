@@ -328,7 +328,6 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
     match_columns = _get_columns(cur, matches_table)
     competitors_exist = _table_exists(cur, competitors_table)
 
-    # Wariant docelowy: matches ma product_id + competitor_product_id
     if (
         competitors_exist
         and "product_id" in match_columns
@@ -364,8 +363,6 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
             for row in cur.fetchall()
         ]
 
-    # Wariant aktualny: matches jest płaską tabelą z files_connector,
-    # np. jmbdesing_price, jmbdesing_url, jmbdesing_name.
     match_row = None
 
     if "client_sku" in match_columns and product.get("sku"):
@@ -418,15 +415,6 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
     match_row = dict(match_row)
     competitors = []
 
-    # Szukamy kolumn typu:
-    # calavado_price
-    # calavado_url
-    # calavado_name
-    #
-    # Pomijamy:
-    # client_price
-    # product_price
-    # our_price
     for column_name, value in match_row.items():
         if not column_name.endswith("_price"):
             continue
@@ -437,7 +425,7 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
         if column_name.startswith("client_") or column_name.startswith("product_") or column_name.startswith("our_"):
             continue
 
-        store_name = column_name[:-6]  # usuwa końcówkę "_price"
+        store_name = column_name[:-6]
 
         price = match_row.get(f"{store_name}_price")
         url = match_row.get(f"{store_name}_url")
@@ -629,11 +617,9 @@ def _get_match_analysis_summary(cur, matches_table: str) -> dict:
             diffs.append(diff)
 
             if diff > 0:
-                # konkurencja drożej, więc nasza cena jest niższa
                 our_lower += 1
                 savings.append(diff)
             elif diff < 0:
-                # konkurencja taniej, więc nasza cena jest wyższa
                 our_higher += 1
                 losses.append(abs(diff))
             else:
@@ -721,6 +707,7 @@ def api_products():
 
     products_table = f"{prefix}_products"
     matches_table = f"{prefix}_matches"
+    competitors_table = f"{prefix}_competitors"
 
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
@@ -730,6 +717,10 @@ def api_products():
     matched_only = request.args.get("matched_only", "false").lower() == "true"
     
     category = request.args.get("category", "").strip()
+    brand = request.args.get("brand", "").strip()
+    store = request.args.get("store", "").strip()
+    price_min = request.args.get("price_min", "").strip()
+    price_max = request.args.get("price_max", "").strip()
     min_matches = request.args.get("min_matches", type=int)
 
     allowed_sort_columns = ["id", "sku", "name", "price_normal", "price_special", "category", "store", "availability"]
@@ -749,6 +740,18 @@ def api_products():
     if category:
         where_parts.append(sql.SQL("p.category = %s"))
         params.append(category)
+        
+    if brand:
+        where_parts.append(sql.SQL("p.manufacturer = %s"))
+        params.append(brand)
+        
+    if price_min:
+        where_parts.append(sql.SQL("(COALESCE(p.price_special, p.price_normal) >= %s)"))
+        params.append(float(price_min))
+        
+    if price_max:
+        where_parts.append(sql.SQL("(COALESCE(p.price_special, p.price_normal) <= %s)"))
+        params.append(float(price_max))
 
     conn = None
     cursor = None
@@ -762,6 +765,32 @@ def api_products():
 
         if matched_only:
             where_parts.append(_get_matched_products_filter(cursor, matches_table))
+
+        if store and _table_exists(cursor, matches_table):
+            match_columns = _get_columns(cursor, matches_table)
+            
+            if "competitor_product_id" in match_columns and _table_exists(cursor, competitors_table):
+                where_parts.append(sql.SQL("""
+                    p.id IN (
+                        SELECT m.product_id 
+                        FROM {} m
+                        JOIN {} c ON c.id = m.competitor_product_id
+                        WHERE c.store = %s
+                    )
+                """).format(sql.Identifier(matches_table), sql.Identifier(competitors_table)))
+                params.append(store)
+            else:
+                store_safe = store.lower().replace(" ", "_")
+                store_col = f"{store_safe}_price"
+                if store_col in match_columns:
+                    if "product_id" in match_columns:
+                        where_parts.append(sql.SQL("p.id IN (SELECT m.product_id FROM {} m WHERE m.{} IS NOT NULL)").format(sql.Identifier(matches_table), sql.Identifier(store_col)))
+                    elif "client_sku" in match_columns:
+                        where_parts.append(sql.SQL("p.sku IN (SELECT m.client_sku FROM {} m WHERE m.{} IS NOT NULL)").format(sql.Identifier(matches_table), sql.Identifier(store_col)))
+                    else:
+                        where_parts.append(sql.SQL("FALSE"))
+                else:
+                    where_parts.append(sql.SQL("FALSE"))
 
         if min_matches and min_matches > 0 and _table_exists(cursor, matches_table):
             match_columns = _get_columns(cursor, matches_table)
@@ -787,7 +816,7 @@ def api_products():
             where_sql = sql.SQL("WHERE ") + sql.SQL(" AND ").join(where_parts)
 
         count_query = sql.SQL("SELECT COUNT(p.id) AS total FROM {} p {}").format(sql.Identifier(products_table), where_sql)
-        cursor.execute(count_query, params)
+        cursor.execute(count_query, tuple(params))
         total_items = cursor.fetchone()["total"]
 
         query = sql.SQL("""
@@ -795,7 +824,7 @@ def api_products():
             FROM {} p {} ORDER BY {} {} LIMIT %s OFFSET %s
         """).format(sql.Identifier(products_table), where_sql, sql.Identifier(sort_by), sql.SQL(order))
 
-        cursor.execute(query, params + [per_page, offset])
+        cursor.execute(query, tuple(params + [per_page, offset]))
         products = [dict(row) for row in cursor.fetchall()]
 
         products = _add_match_counts(cursor, matches_table, products)
@@ -812,7 +841,6 @@ def api_products():
     finally:
         if cursor: cursor.close()
         if conn: conn.close()
-
 
 @products_bp.route("/api/products/<int:product_id>")
 @login_required
@@ -1055,10 +1083,8 @@ def api_stats():
             match_summary = _get_match_analysis_summary(cursor, matches_table)
 
         summary = {
-            # Dashboard ma pokazywać produkty realnie zmatchowane.
             "total": match_summary.get("matched_products") or 0,
 
-            # Zachowuję nazwę pola, bo frontend już jej używa.
             "avg_price_normal": competitor_summary.get("avg_competitor_price"),
 
             "avg_price_special": None,
@@ -1249,3 +1275,44 @@ def api_stores():
             cursor.close()
         if conn:
             conn.close()
+
+@products_bp.route("/api/filters", methods=["GET"])
+@login_required
+def get_filters():
+    prefix = _get_store_prefix()
+    if not prefix:
+        return jsonify({"error": "Brak zdefiniowanego sklepu"}), 400
+        
+    conn = get_db()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        products_table = f"{prefix}_products"
+        competitors_table = f"{prefix}_competitors"
+        
+        categories = []
+        brands = []
+        stores = []
+        
+        if _table_exists(cur, products_table):
+            cur.execute(sql.SQL("SELECT DISTINCT category FROM {} WHERE category IS NOT NULL AND category != ''").format(sql.Identifier(products_table)))
+            categories = [row['category'] for row in cur.fetchall()]
+
+            cur.execute(sql.SQL("SELECT DISTINCT manufacturer FROM {} WHERE manufacturer IS NOT NULL AND manufacturer != ''").format(sql.Identifier(products_table)))
+            brands = [row['manufacturer'] for row in cur.fetchall()]
+
+        if _table_exists(cur, competitors_table):
+            cur.execute(sql.SQL("SELECT DISTINCT store FROM {} WHERE store IS NOT NULL AND store != ''").format(sql.Identifier(competitors_table)))
+            stores = [row['store'] for row in cur.fetchall()]
+
+        return jsonify({
+            "ok": True,
+            "categories": sorted(categories),
+            "brands": sorted(brands),
+            "stores": sorted(stores),
+            "max_stores": len(stores) if len(stores) > 0 else 5
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
