@@ -534,22 +534,49 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
         competitor_price_normal = match_price
         competitor_price_special = None
 
-        if competitors_exist and url:
+        if competitors_exist:
             try:
-                extra_query = sql.SQL("""
-                    SELECT
-                        sku,
-                        image,
-                        availability,
-                        price_normal,
-                        price_special
-                    FROM {}
-                    WHERE url = %s
-                    LIMIT 1
-                """).format(sql.Identifier(competitors_table))
+                extra = None
 
-                cur.execute(extra_query, (url,))
-                extra = cur.fetchone()
+                if url:
+                    extra_query = sql.SQL("""
+                        SELECT
+                            sku,
+                            name,
+                            image,
+                            availability,
+                            price_normal,
+                            price_special,
+                            url
+                        FROM {}
+                        WHERE TRIM(TRAILING '/' FROM url) =
+                              TRIM(TRAILING '/' FROM %s)
+                        LIMIT 1
+                    """).format(sql.Identifier(competitors_table))
+
+                    cur.execute(extra_query, (url,))
+                    extra = cur.fetchone()
+
+                # Awaryjne wyszukanie po nazwie i sklepie,
+                # gdy w tabeli matches nie ma URL-u.
+                if not extra and name:
+                    extra_query = sql.SQL("""
+                        SELECT
+                            sku,
+                            name,
+                            image,
+                            availability,
+                            price_normal,
+                            price_special,
+                            url
+                        FROM {}
+                        WHERE LOWER(store) = LOWER(%s)
+                          AND LOWER(name) = LOWER(%s)
+                        LIMIT 1
+                    """).format(sql.Identifier(competitors_table))
+
+                    cur.execute(extra_query, (store_name, name))
+                    extra = cur.fetchone()
 
                 if extra:
                     extra = dict(extra)
@@ -557,6 +584,7 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
                     competitor_sku = extra.get("sku")
                     image = extra.get("image")
                     availability = extra.get("availability")
+                    url = url or extra.get("url")
 
                     if extra.get("price_normal") is not None:
                         competitor_price_normal = extra.get("price_normal")
@@ -564,8 +592,11 @@ def _fetch_competitors_for_product(cur, product: dict, matches_table: str, compe
                     if extra.get("price_special") is not None:
                         competitor_price_special = extra.get("price_special")
 
-            except Exception:
-                pass
+            except Exception as e:
+                print(
+                    f"[PRODUCTS] Nie udało się pobrać szczegółów "
+                    f"konkurenta {store_name}: {e}"
+                )
 
         competitor_display_price = _effective_price(
             competitor_price_normal,

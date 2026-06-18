@@ -164,17 +164,37 @@ class SaveToPostgresSQLPipeline:
         # Właśnie ta aktualizacja (UPDATE) uruchomi naszego Triggera historycznego!
         query = f"""
             INSERT INTO {self.table_name} (
-                sku, name, size, color, manufacturer, category, 
-                price_normal, price_special, store, availability, 
+                sku, name, size, color, manufacturer, category,
+                price_normal, price_special, store, availability,
                 date_of_download, url, image, description
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
-            ON CONFLICT (sku,store) DO UPDATE SET
+            ON CONFLICT (sku, store) DO UPDATE SET
+                name = COALESCE(EXCLUDED.name, {self.table_name}.name),
+                size = COALESCE(EXCLUDED.size, {self.table_name}.size),
+                color = COALESCE(EXCLUDED.color, {self.table_name}.color),
+                manufacturer = COALESCE(
+                    EXCLUDED.manufacturer,
+                    {self.table_name}.manufacturer
+                ),
+                category = COALESCE(
+                    EXCLUDED.category,
+                    {self.table_name}.category
+                ),
                 price_normal = EXCLUDED.price_normal,
                 price_special = EXCLUDED.price_special,
-                availability = EXCLUDED.availability,
-                date_of_download = EXCLUDED.date_of_download;
+                availability = COALESCE(
+                    EXCLUDED.availability,
+                    {self.table_name}.availability
+                ),
+                date_of_download = EXCLUDED.date_of_download,
+                url = COALESCE(EXCLUDED.url, {self.table_name}.url),
+                image = COALESCE(EXCLUDED.image, {self.table_name}.image),
+                description = COALESCE(
+                    EXCLUDED.description,
+                    {self.table_name}.description
+                );
         """
         try:
             psycopg2.extras.execute_batch(self.cur, query, self.items_buffer)
