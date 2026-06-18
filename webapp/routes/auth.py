@@ -184,41 +184,28 @@ def _attach_scrapers_to_client(cur, request_id, client_id, store_prefix, admin_u
 
 
 def send_email(subject, body, to_email=None):
-    api_key = os.environ.get("Mailtrap_api")
+    app_password = os.environ.get("eroch_gamil")
+    sender_email = os.environ.get("GMAIL_USER")
     default_to = os.environ.get("SMTP_DEFAULT_TO")
     to_email = to_email or default_to
 
-    if not api_key:
-        print("Brak zmiennej Mailtrap_api w .env! Drukuję e-mail w konsoli:")
-        print("="*40)
-        print(f"Do: {to_email}")
-        print(f"Temat: {subject}")
-        print(f"Treść:\n{body}")
-        print("="*40)
+    if not app_password or not sender_email or not to_email:
+        print(f"Brak pełnych danych do wysłania e-maila (to_email={to_email}).")
         return
 
-    url = "https://send.api.mailtrap.io/api/send"
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "from": {"email": "hello@demomailtrap.com", "name": "e-ROCH System"},
-        "to": [{"email": to_email}],
-        "subject": subject,
-        "text": body
-    }
-    
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = to_email
+
     try:
-        response = requests.post(url, json=payload, headers=headers)
-        if response.status_code >= 400:
-            print(f"Błąd Mailtrap API: {response.status_code} - {response.text}")
-        else:
-            print(f"E-mail wysłany pomyślnie przez Mailtrap (status: {response.status_code})")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(sender_email, app_password)
+            server.send_message(msg)
+        print("E-mail wysłany pomyślnie przez Gmail.")
     except Exception as e:
-        print(f"Błąd połączenia z Mailtrap: {e}")
+        print(f"Błąd wysyłania e-maila przez Gmail: {e}")
 
 
 # ============================================================
