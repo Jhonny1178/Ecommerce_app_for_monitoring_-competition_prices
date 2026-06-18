@@ -184,7 +184,7 @@ def _attach_scrapers_to_client(cur, request_id, client_id, store_prefix, admin_u
 
 
 def send_email(subject, body, to_email=None):
-    app_password = os.environ.get("eroch_gamil")
+    app_password = os.environ.get("EROCH_GMAIL")
     sender_email = os.environ.get("GMAIL_USER")
     default_to = os.environ.get("SMTP_DEFAULT_TO")
     to_email = to_email or default_to

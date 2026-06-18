@@ -429,7 +429,7 @@ services:
       - APP_DB_USER=${APP_DB_USER}
       - APP_DB_PASSWORD=${APP_DB_PASSWORD}
       - ONBOARDING_UPLOAD_DIR=/shared/onboarding
-      - eroch_gamil=${eroch_gamil}
+      - EROCH_GMAIL=${EROCH_GMAIL}
       - GMAIL_USER=${GMAIL_USER}
     restart: always
     depends_on:
