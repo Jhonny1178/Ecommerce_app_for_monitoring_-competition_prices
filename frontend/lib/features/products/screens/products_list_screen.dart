@@ -293,7 +293,7 @@ class _ProductsListScreenState extends State<ProductsListScreen> {
           hint: Text(label, style: const TextStyle(fontSize: 13)),
           items: [
             DropdownMenuItem(value: null, child: Text('$label: Wszystkie', style: const TextStyle(fontSize: 13))),
-            ...options.map((e) => DropdownMenuItem(value: e, child: Text('$label: $e', style: const TextStyle(fontSize: 13)))),
+            ...options.map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 13)))),
           ],
           onChanged: onChanged,
         ),
