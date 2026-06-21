@@ -723,16 +723,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(width: 16),
             Expanded(
               child: _buildBigKpiCard(
-                title: 'Dopasowania cen',
-                value: _formatNumber(totalCompetitorMatches),
-                subtitle: 'porównania z konkurencją',
-                icon: Icons.compare_arrows,
-                colorScheme: colorScheme,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildBigKpiCard(
                 title: 'Monitorowane sklepy',
                 value: _formatNumber(totalStores),
                 subtitle: 'aktywni konkurenci',
