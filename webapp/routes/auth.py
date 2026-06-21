@@ -207,7 +207,21 @@ def send_email(subject, body, to_email=None):
     except Exception as e:
         print(f"Błąd wysyłania e-maila przez Gmail: {e}")
 
+def _utc_iso(value):
+    if value is None:
+        return None
 
+    if value.tzinfo is None:
+        value = value.replace(
+            tzinfo=datetime.timezone.utc
+        )
+
+    return (
+        value
+        .astimezone(datetime.timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 # ============================================================
 # Auth
 # ============================================================
@@ -389,6 +403,8 @@ def api_login():
                 "ok": False,
                 "error": "Nieprawidłowy login lub hasło."
             }), 401
+        session.clear()
+        session.permanent = True
 
         session["user_id"] = user["id"]
         session["username"] = user["username"]
@@ -2359,3 +2375,235 @@ def get_api_usage():
     finally:
         cur.close()
         conn.close()
+
+@auth_bp.route("/api/admin/pipeline-clients", methods=["GET"])
+@admin_required
+def get_pipeline_clients():
+    conn = None
+    cur = None
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+
+        cur.execute("""
+            SELECT
+                c.id AS client_id,
+                c.name AS client_name,
+                c.slug AS client_slug,
+
+                COALESCE(
+                    ARRAY_LENGTH(c.spiders_to_run, 1),
+                    0
+                ) AS scrapers_count,
+
+                COALESCE(
+                    c.spiders_to_run,
+                    ARRAY[]::TEXT[]
+                ) AS scrapers,
+
+                last_run.id AS last_pipeline_run_id,
+                last_run.status AS last_status,
+                last_run.started_at AS last_started_at,
+                last_run.finished_at AS last_finished_at,
+                last_run.error_msg AS last_error_msg
+
+            FROM clients c
+
+            LEFT JOIN LATERAL (
+                SELECT
+                    pr.id,
+                    pr.status,
+                    pr.started_at,
+                    pr.finished_at,
+                    pr.error_msg
+                FROM pipeline_runs pr
+                WHERE pr.client_id = c.id
+                ORDER BY pr.started_at DESC, pr.id DESC
+                LIMIT 1
+            ) last_run ON TRUE
+
+            WHERE c.is_active = TRUE
+            ORDER BY c.name ASC
+        """)
+
+        rows = cur.fetchall()
+        result = []
+
+        for row in rows:
+            item = dict(row)
+
+            started_at = item.get("last_started_at")
+            finished_at = item.get("last_finished_at")
+
+            duration_seconds = None
+
+            if started_at and finished_at:
+                duration_seconds = int(
+                    (finished_at - started_at).total_seconds()
+                )
+
+            item["last_started_at"] = _utc_iso(
+                started_at
+            )
+
+            item["last_finished_at"] = _utc_iso(
+                finished_at
+            )
+
+            item["duration_seconds"] = duration_seconds
+            item["schedule_cron"] = "0 9 * * *"
+            item["schedule_label"] = (
+                "Codziennie o 09:00 UTC "
+                "(11:00 latem, 10:00 zimą)"
+            )
+
+            result.append(item)
+
+        return jsonify({
+            "ok": True,
+            "data": result,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+        }), 500
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
+
+
+@auth_bp.route(
+    "/api/admin/clients/<int:client_id>/pipeline-runs",
+    methods=["GET"],
+)
+@admin_required
+def get_client_pipeline_runs(client_id):
+    conn = None
+    cur = None
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+
+        cur.execute("""
+            SELECT
+                id,
+                name
+            FROM clients
+            WHERE id = %s
+            LIMIT 1
+        """, (client_id,))
+
+        client = cur.fetchone()
+
+        if not client:
+            return jsonify({
+                "ok": False,
+                "error": "Nie znaleziono klienta.",
+            }), 404
+
+        cur.execute("""
+            SELECT
+                pr.id AS pipeline_run_id,
+                pr.status,
+                pr.started_at,
+                pr.finished_at,
+                pr.error_msg,
+
+                COUNT(ptr.id)::INTEGER AS tasks_count,
+
+                COUNT(ptr.id) FILTER (
+                    WHERE ptr.status = 'success'
+                )::INTEGER AS success_tasks,
+
+                COUNT(ptr.id) FILTER (
+                    WHERE ptr.status = 'failed'
+                )::INTEGER AS failed_tasks,
+
+                COUNT(ptr.id) FILTER (
+                    WHERE ptr.status = 'running'
+                )::INTEGER AS running_tasks
+
+            FROM pipeline_runs pr
+
+            LEFT JOIN pipeline_task_runs ptr
+                ON ptr.pipeline_run_id = pr.id
+
+            WHERE pr.client_id = %s
+
+            GROUP BY
+                pr.id,
+                pr.status,
+                pr.started_at,
+                pr.finished_at,
+                pr.error_msg
+
+            ORDER BY pr.started_at DESC, pr.id DESC
+            LIMIT 50
+        """, (client_id,))
+
+        rows = cur.fetchall()
+        runs = []
+
+        for row in rows:
+            item = dict(row)
+
+            started_at = item.get("started_at")
+            finished_at = item.get("finished_at")
+
+            duration_seconds = None
+
+            if started_at and finished_at:
+                duration_seconds = int(
+                    (finished_at - started_at).total_seconds()
+                )
+
+            item["started_at"] = _utc_iso(
+                started_at
+            )
+
+            item["finished_at"] = _utc_iso(
+                finished_at
+            )
+
+            item["duration_seconds"] = duration_seconds
+
+            runs.append(item)
+
+        return jsonify({
+            "ok": True,
+            "client": {
+                "id": client["id"],
+                "name": client["name"],
+            },
+            "runs": runs,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+        }), 500
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
+

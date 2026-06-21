@@ -43,6 +43,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   bool _isLoadingScrapers = true;
   List<dynamic> _scrapers = [];
+  bool _isLoadingPipelineClients = true;
+  List<dynamic> _pipelineClients = [];
   final TextEditingController _scrapersSearchController = TextEditingController();
   String _scrapersSearchQuery = '';
   int _scrapersSortColumnIndex = 0;
@@ -56,6 +58,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     super.initState();
     _fetchPendingUsers();
     _fetchScrapers();
+    _fetchPipelineClients();
     _fetchStores();
     _fetchApiUsage();
   }
@@ -151,6 +154,33 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     } finally {
       setState(() => _isLoadingScrapers = false);
     }
+  }
+  Future<void> _fetchPipelineClients() async {
+  if (mounted) {
+    setState(() => _isLoadingPipelineClients = true);
+  }
+
+  try {
+    final response = await ApiClient.get(
+      Uri.parse("/api/admin/pipeline-clients"),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 200 &&
+        data['ok'] == true &&
+        mounted) {
+      setState(() {
+        _pipelineClients = data['data'] ?? [];
+      });
+    }
+  } catch (e) {
+    debugPrint("Error fetching pipeline clients: $e");
+  } finally {
+    if (mounted) {
+      setState(() => _isLoadingPipelineClients = false);
+    }
+  }
   }
 
   Future<void> _fetchRegRequests() async {
@@ -475,6 +505,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   void _refreshData() {
     _fetchPendingUsers();
     _fetchScrapers();
+    _fetchPipelineClients();
     _fetchStores();
     _fetchErrorLogs();
     _fetchApiUsage();
@@ -738,6 +769,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
         if (index == 0) _fetchPendingUsers();
         if (index == 1 && _logs.isEmpty) _fetchErrorLogs();
+        if (index == 2) _fetchPipelineClients();
         if (index == 3) _fetchStores();
       },
       borderRadius: BorderRadius.circular(20),
@@ -1569,171 +1601,483 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       ],
     );
   }
+  String _formatPipelineDate(dynamic value) {
+  if (value == null) return '-';
 
-  Widget _buildScrapersTab(ColorScheme colorScheme) {
-    if (_isLoadingScrapers) {
-      return const Center(child: CircularProgressIndicator());
+  final date = DateTime.tryParse(
+    value.toString(),
+  )?.toLocal();
+
+  if (date == null) return '-';
+
+  String twoDigits(int number) {
+    return number.toString().padLeft(2, '0');
+  }
+
+  return '${twoDigits(date.day)}.'
+      '${twoDigits(date.month)}.'
+      '${date.year} '
+      '${twoDigits(date.hour)}:'
+      '${twoDigits(date.minute)}';
+}
+
+String _formatPipelineDuration(dynamic value) {
+  final seconds = int.tryParse(
+    value?.toString() ?? '',
+  );
+
+  if (seconds == null) return '-';
+
+  final duration = Duration(seconds: seconds);
+
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  final remainingSeconds =
+      duration.inSeconds.remainder(60);
+
+  if (hours > 0) {
+    return '${hours}h ${minutes}m';
+  }
+
+  if (minutes > 0) {
+    return '${minutes}m ${remainingSeconds}s';
+  }
+
+  return '${remainingSeconds}s';
+}
+
+String _pipelineStatusLabel(dynamic value) {
+  final status =
+      value?.toString().toLowerCase() ?? '';
+
+  switch (status) {
+    case 'success':
+      return 'Sukces';
+    case 'failed':
+      return 'Błąd';
+    case 'running':
+      return 'W trakcie';
+    default:
+      return 'Brak uruchomień';
+  }
+}
+
+Color _pipelineStatusColor(
+  dynamic value,
+  ColorScheme colorScheme,
+) {
+  final status =
+      value?.toString().toLowerCase() ?? '';
+
+  switch (status) {
+    case 'success':
+      return Colors.green;
+    case 'failed':
+      return colorScheme.error;
+    case 'running':
+      return Colors.blue;
+    default:
+      return colorScheme.onSurfaceVariant;
+  }
+}
+
+Widget _buildScrapersTab(ColorScheme colorScheme) {
+  if (_isLoadingPipelineClients) {
+    return const Padding(
+      padding: EdgeInsets.all(48),
+      child: Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+  }
+
+  final filteredClients =
+      _pipelineClients.where((client) {
+    if (_scrapersSearchQuery.trim().isEmpty) {
+      return true;
     }
 
-    if (_scrapers.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32.0),
-          child: Text('Brak zatwierdzonych scraperów.', style: TextStyle(fontSize: 16)),
-        ),
-      );
-    }
+    final query =
+        _scrapersSearchQuery.toLowerCase();
 
-    List<dynamic> filteredScrapers = _scrapers.where((s) {
-      if (_scrapersSearchQuery.isEmpty) return true;
-      final searchLower = _scrapersSearchQuery.toLowerCase();
-      final name = (s['spider_name'] ?? '').toLowerCase();
-      final client = (s['client_name'] ?? '').toLowerCase();
-      return name.contains(searchLower) || client.contains(searchLower);
-    }).toList();
+    final clientName =
+        (client['client_name'] ?? '')
+            .toString()
+            .toLowerCase();
 
-    filteredScrapers.sort((a, b) {
-      int cmp = 0;
-      switch (_scrapersSortColumnIndex) {
-        case 0:
-          cmp = (a['id'] as int).compareTo(b['id'] as int);
-          break;
-        case 1:
-          cmp = (a['spider_name'] ?? '').compareTo(b['spider_name'] ?? '');
-          break;
-        case 2:
-          cmp = (a['client_name'] ?? '').compareTo(b['client_name'] ?? '');
-          break;
-        case 3:
-          final shopA = a['competitor_name'] ?? a['competitor_url'] ?? '';
-          final shopB = b['competitor_name'] ?? b['competitor_url'] ?? '';
-          cmp = shopA.compareTo(shopB);
-          break;
-        case 5:
-          final dateA = a['last_run_time'] ?? '';
-          final dateB = b['last_run_time'] ?? '';
-          cmp = dateA.compareTo(dateB);
-          break;
-        default:
-          cmp = 0;
-      }
-      return _scrapersSortAscending ? cmp : -cmp;
-    });
+    final scrapers = client['scrapers'] is List
+        ? client['scrapers'] as List
+        : <dynamic>[];
 
-    void _onSort(int columnIndex, bool ascending) {
-      setState(() {
-        _scrapersSortColumnIndex = columnIndex;
-        _scrapersSortAscending = ascending;
-      });
-    }
+    final scrapersText = scrapers
+        .map(
+          (item) => item.toString().toLowerCase(),
+        )
+        .join(' ');
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Cykliczne Scrapery',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            Row(
-              children: [
-                SizedBox(
-                  width: 300,
-                  height: 40,
-                  child: TextField(
-                    controller: _scrapersSearchController,
-                    onChanged: (val) {
-                      setState(() => _scrapersSearchQuery = val);
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'Szukaj scrapera lub klienta...',
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                      filled: true,
-                      fillColor: colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
-                    ),
-                  ),
+    return clientName.contains(query) ||
+        scrapersText.contains(query);
+  }).toList();
+
+  return Column(
+    crossAxisAlignment:
+        CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        mainAxisAlignment:
+            MainAxisAlignment.spaceBetween,
+        children: [
+          const Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Cykliczne procesy danych',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
                 ),
-              ],
-            )
-          ],
-        ),
-        const SizedBox(height: 16),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Pełne uruchomienia pipeline’u '
+                'dla każdego klienta',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(
+            width: 320,
+            height: 40,
+            child: TextField(
+              controller:
+                  _scrapersSearchController,
+              onChanged: (value) {
+                setState(() {
+                  _scrapersSearchQuery = value;
+                });
+              },
+              decoration: InputDecoration(
+                hintText:
+                    'Szukaj klienta lub scrapera...',
+                prefixIcon: const Icon(
+                  Icons.search,
+                  size: 20,
+                ),
+                filled: true,
+                fillColor: colorScheme
+                    .surfaceContainerHighest
+                    .withOpacity(0.5),
+                contentPadding: EdgeInsets.zero,
+                border: OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(20),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 20),
+      if (filteredClients.isEmpty)
+        const Padding(
+          padding: EdgeInsets.all(48),
+          child: Center(
+            child: Text(
+              'Brak aktywnych pipeline’ów klientów.',
+            ),
+          ),
+        )
+      else
         Container(
           decoration: BoxDecoration(
             color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colorScheme.surfaceContainerHighest),
+            borderRadius:
+                BorderRadius.circular(16),
+            border: Border.all(
+              color: colorScheme
+                  .surfaceContainerHighest,
+            ),
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
               return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
+                scrollDirection:
+                    Axis.horizontal,
                 child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  constraints: BoxConstraints(
+                    minWidth: constraints.maxWidth,
+                  ),
                   child: DataTable(
                     showCheckboxColumn: false,
-                    sortColumnIndex: _scrapersSortColumnIndex,
-                    sortAscending: _scrapersSortAscending,
-                    headingRowColor: WidgetStateProperty.all(colorScheme.surfaceContainerHighest.withOpacity(0.5)),
-                    columns: [
-                      DataColumn(label: const Expanded(child: Text('ID', style: TextStyle(fontWeight: FontWeight.bold))), onSort: _onSort),
-                      DataColumn(label: const Expanded(child: Text('Nazwa (Spider)', style: TextStyle(fontWeight: FontWeight.bold))), onSort: _onSort),
-                      DataColumn(label: const Expanded(child: Text('Klient', style: TextStyle(fontWeight: FontWeight.bold))), onSort: _onSort),
-                      const DataColumn(label: Expanded(child: Text('Ostatni Status', style: TextStyle(fontWeight: FontWeight.bold)))),
-                      DataColumn(label: const Expanded(child: Text('Ostatnie Uruchomienie', style: TextStyle(fontWeight: FontWeight.bold))), onSort: _onSort),
+                    dataRowMinHeight: 74,
+                    dataRowMaxHeight: 110,
+                    headingRowColor:
+                        WidgetStateProperty.all(
+                      colorScheme
+                          .surfaceContainerHighest
+                          .withOpacity(0.5),
+                    ),
+                    columns: const [
+                      DataColumn(
+                        label: Text(
+                          'Klient',
+                          style: TextStyle(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Aktywne scrapery',
+                          style: TextStyle(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Ostatni status',
+                          style: TextStyle(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Ostatnie uruchomienie',
+                          style: TextStyle(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Czas trwania',
+                          style: TextStyle(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Harmonogram',
+                          style: TextStyle(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
+                      ),
                     ],
-                    rows: filteredScrapers.map<DataRow>((s) {
-                      final status = s['last_run_status'] ?? 'Brak uruchomień';
-                      Color statusColor = colorScheme.onSurfaceVariant;
-                      if (status == 'success') statusColor = colorScheme.primary;
-                      else if (status == 'failed') statusColor = colorScheme.error;
-                      else if (status == 'running') statusColor = colorScheme.secondary;
+                    rows: filteredClients
+                        .map<DataRow>((client) {
+                      final status =
+                          client['last_status'];
 
-                      final lastRunTime = s['last_run_time'] != null 
-                          ? DateTime.parse(s['last_run_time']).toLocal().toString().substring(0, 16)
-                          : '-';
+                      final statusColor =
+                          _pipelineStatusColor(
+                        status,
+                        colorScheme,
+                      );
+
+                      final scrapers =
+                          client['scrapers'] is List
+                              ? client['scrapers']
+                                  as List
+                              : <dynamic>[];
 
                       return DataRow(
                         onSelectChanged: (_) {
-                          Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => AdminScraperLogsScreen(
-                              scraperId: s['id'],
-                              spiderName: s['spider_name'],
+                          Navigator.of(context)
+                              .push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  AdminScraperLogsScreen(
+                                clientId:
+                                    client['client_id'],
+                                clientName:
+                                    client['client_name']
+                                            ?.toString() ??
+                                        'Klient',
+                                scheduleLabel:
+                                    client['schedule_label']
+                                            ?.toString() ??
+                                        'Codziennie',
+                              ),
                             ),
-                          ));
+                          )
+                              .then((_) {
+                            _fetchPipelineClients();
+                          });
                         },
                         cells: [
-                          DataCell(Text(s['id'].toString())),
-                          DataCell(Text(s['spider_name'] ?? '-')),
-                          DataCell(Text(s['client_name'] ?? '-')),
                           DataCell(
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: statusColor.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                status,
-                                style: TextStyle(color: statusColor, fontWeight: FontWeight.bold),
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor:
+                                      colorScheme
+                                          .primaryContainer,
+                                  child: Icon(
+                                    Icons.store_outlined,
+                                    color:
+                                        colorScheme.primary,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Column(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment
+                                          .center,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment
+                                          .start,
+                                  children: [
+                                    Text(
+                                      client['client_name']
+                                              ?.toString() ??
+                                          '-',
+                                      style:
+                                          const TextStyle(
+                                        fontWeight:
+                                            FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${client['scrapers_count'] ?? 0} '
+                                      'scraperów',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          DataCell(
+                            SizedBox(
+                              width: 320,
+                              child: Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children:
+                                    scrapers.map<Widget>(
+                                  (scraper) {
+                                    return Container(
+                                      padding:
+                                          const EdgeInsets
+                                              .symmetric(
+                                        horizontal: 9,
+                                        vertical: 4,
+                                      ),
+                                      decoration:
+                                          BoxDecoration(
+                                        color: colorScheme
+                                            .primaryContainer
+                                            .withOpacity(
+                                          0.6,
+                                        ),
+                                        borderRadius:
+                                            BorderRadius
+                                                .circular(
+                                          12,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        scraper.toString(),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: colorScheme
+                                              .onPrimaryContainer,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ).toList(),
                               ),
                             ),
                           ),
-                          DataCell(Text(lastRunTime)),
-                        ]
+                          DataCell(
+                            Container(
+                              padding:
+                                  const EdgeInsets
+                                      .symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: statusColor
+                                    .withOpacity(0.15),
+                                borderRadius:
+                                    BorderRadius.circular(
+                                  8,
+                                ),
+                              ),
+                              child: Text(
+                                _pipelineStatusLabel(
+                                  status,
+                                ),
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight:
+                                      FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatPipelineDate(
+                                client[
+                                    'last_started_at'],
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatPipelineDuration(
+                                client[
+                                    'duration_seconds'],
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            SizedBox(
+                              width: 190,
+                              child: Text(
+                                client['schedule_label']
+                                        ?.toString() ??
+                                    '-',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       );
                     }).toList(),
                   ),
                 ),
               );
-            }
+            },
           ),
         ),
-      ],
-    );
-  }
+    ],
+  );
+}
 }

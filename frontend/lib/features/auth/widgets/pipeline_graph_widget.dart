@@ -1,18 +1,23 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:tonten/core/api/api_client.dart';
-import 'dart:convert';
 
 class PipelineGraphWidget extends StatefulWidget {
   final int? pipelineRunId;
-  final String? spiderName;
 
-  const PipelineGraphWidget({super.key, required this.pipelineRunId, this.spiderName});
+  const PipelineGraphWidget({
+    super.key,
+    required this.pipelineRunId,
+  });
 
   @override
-  State<PipelineGraphWidget> createState() => _PipelineGraphWidgetState();
+  State<PipelineGraphWidget> createState() =>
+      _PipelineGraphWidgetState();
 }
 
-class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
+class _PipelineGraphWidgetState
+    extends State<PipelineGraphWidget> {
   bool _isLoading = true;
   List<dynamic> _tasks = [];
   String? _error;
@@ -20,41 +25,75 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
   @override
   void initState() {
     super.initState();
-    if (widget.pipelineRunId != null) {
-      _fetchTasks();
-    } else {
+
+    if (widget.pipelineRunId == null) {
       _isLoading = false;
-      _error = "Brak ID pipeline'u dla tego uruchomienia";
+      _error = 'Brak ID pipeline’u.';
+    } else {
+      _fetchTasks();
     }
   }
 
   Future<void> _fetchTasks() async {
     try {
       final response = await ApiClient.get(
-        Uri.parse("/api/admin/pipeline_runs/${widget.pipelineRunId}/tasks"),
+        Uri.parse(
+          "/api/admin/pipeline_runs/"
+          "${widget.pipelineRunId}/tasks",
+        ),
       );
+
       final data = jsonDecode(response.body);
-      if (response.statusCode == 200 && data['ok'] == true) {
+
+      if (response.statusCode == 200 &&
+          data['ok'] == true) {
+        final tasks = List<dynamic>.from(
+          data['tasks'] ?? [],
+        );
+
+        tasks.removeWhere((task) {
+          final taskId =
+              task['task_id']?.toString() ?? '';
+
+          final status =
+              task['status']?.toString() ?? '';
+
+          return taskId.startsWith(
+                    'finish_pipeline_',
+                  ) &&
+              status == 'skipped';
+        });
+
+        tasks.sort((first, second) {
+          final firstId =
+              first['task_id']?.toString() ?? '';
+
+          final secondId =
+              second['task_id']?.toString() ?? '';
+
+          final orderResult =
+              _taskOrder(firstId).compareTo(
+            _taskOrder(secondId),
+          );
+
+          if (orderResult != 0) {
+            return orderResult;
+          }
+
+          return firstId.compareTo(secondId);
+        });
+
         if (mounted) {
           setState(() {
-            final allTasks = data['tasks'] as List<dynamic>? ?? [];
-            _tasks = allTasks.where((task) {
-              final taskId = task['task_id'] as String? ?? '';
-              if (widget.spiderName != null && (taskId.startsWith('scrape_') || taskId.startsWith('scraper_'))) {
-                // If it's a scraper task, only keep it if it's the one we are currently viewing
-                // For "nasz_klient", the ingest task is named "nasz_klient" which doesn't start with scrape_, so it's kept.
-                // But if the spider name is Calavado, it keeps scrape_calavado and hides others.
-                return taskId.toLowerCase().contains(widget.spiderName!.toLowerCase());
-              }
-              return true;
-            }).toList();
+            _tasks = tasks;
             _isLoading = false;
           });
         }
       } else {
         if (mounted) {
           setState(() {
-            _error = data['error'] ?? 'Błąd pobierania zadań';
+            _error = data['error']?.toString() ??
+                'Błąd pobierania zadań.';
             _isLoading = false;
           });
         }
@@ -62,111 +101,349 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Błąd połączenia: $e';
+          _error = e.toString();
           _isLoading = false;
         });
       }
     }
   }
 
+  int _taskOrder(String taskId) {
+    final value = taskId.toLowerCase();
+
+    if (value.contains('reset_competitors')) {
+      return 20;
+    }
+
+    if (value.contains('calavado')) {
+      return 30;
+    }
+
+    if (value.contains('jmbdesing')) {
+      return 31;
+    }
+
+    if (value.contains('pod_pierzyna')) {
+      return 32;
+    }
+
+    if (value.startsWith('scrape_') ||
+        value.startsWith('scraper_')) {
+      return 35;
+    }
+
+    if (value.contains('matching')) {
+      return 40;
+    }
+
+    if (value.contains('finish')) {
+      return 50;
+    }
+
+    return 10;
+  }
+
+  String _displayTaskName(String taskId) {
+    final value = taskId.toLowerCase();
+
+    if (value.contains('reset_competitors')) {
+      return 'Przygotowanie danych konkurencji';
+    }
+
+    if (value.contains('calavado')) {
+      return 'Scraper: Calavado';
+    }
+
+    if (value.contains('jmbdesing')) {
+      return 'Scraper: jmbdesing';
+    }
+
+    if (value.contains('pod_pierzyna')) {
+      return 'Scraper: pod_pierzyna';
+    }
+
+    if (value.contains('matching')) {
+      return 'Matching produktów';
+    }
+
+    if (value.contains('finish')) {
+      return 'Zakończenie pipeline’u';
+    }
+
+    return 'Aktualizacja danych klienta';
+  }
+
+  Color _statusColor(
+    dynamic value,
+    ColorScheme colorScheme,
+  ) {
+    switch (value?.toString().toLowerCase()) {
+      case 'success':
+        return Colors.green;
+      case 'failed':
+        return colorScheme.error;
+      case 'running':
+        return Colors.blue;
+      case 'skipped':
+        return Colors.orange;
+      default:
+        return colorScheme.onSurfaceVariant;
+    }
+  }
+
+  String _statusLabel(dynamic value) {
+    switch (value?.toString().toLowerCase()) {
+      case 'success':
+        return 'Sukces';
+      case 'failed':
+        return 'Błąd';
+      case 'running':
+        return 'W trakcie';
+      case 'skipped':
+        return 'Pominięto';
+      default:
+        return 'Nieznany';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colorScheme =
+        Theme.of(context).colorScheme;
+
     if (_isLoading) {
-      return const Padding(
-        padding: EdgeInsets.all(32.0),
-        child: Center(child: CircularProgressIndicator()),
+      return const Center(
+        child: CircularProgressIndicator(),
       );
     }
+
     if (_error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Text(_error!, style: const TextStyle(color: Colors.red)),
+      return Text(
+        _error!,
+        style: TextStyle(
+          color: colorScheme.error,
+        ),
       );
     }
+
     if (_tasks.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Text('Brak zarejestrowanych zadań dla tego uruchomienia.'),
+      return const Text(
+        'Brak zarejestrowanych zadań.',
       );
     }
 
-    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Przebieg procesu',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: List.generate(
+            _tasks.length,
+            (index) {
+              final task = _tasks[index];
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: List.generate(_tasks.length * 2 - 1, (index) {
-            if (index % 2 == 1) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Icon(Icons.arrow_forward, color: colorScheme.onSurfaceVariant),
+              final taskId =
+                  task['task_id']?.toString() ??
+                      '-';
+
+              final status =
+                  task['status'];
+
+              final statusColor =
+                  _statusColor(
+                status,
+                colorScheme,
               );
-            }
-            final taskIndex = index ~/ 2;
-            final task = _tasks[taskIndex];
-            final status = task['status'] ?? 'unknown';
-            final taskId = task['task_id'] ?? 'unknown';
-            
-            Color statusColor = colorScheme.onSurfaceVariant;
-            IconData statusIcon = Icons.help_outline;
-            if (status == 'success') {
-              statusColor = Colors.green;
-              statusIcon = Icons.check_circle;
-            } else if (status == 'failed') {
-              statusColor = Colors.red;
-              statusIcon = Icons.error;
-            } else if (status == 'running') {
-              statusColor = Colors.blue;
-              statusIcon = Icons.autorenew;
-            } else if (status == 'skipped') {
-              statusColor = Colors.orange;
-              statusIcon = Icons.skip_next;
-            }
 
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              decoration: BoxDecoration(
-                color: statusColor.withOpacity(0.05),
-                border: Border.all(color: statusColor.withOpacity(0.5), width: 2),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                children: [
-                  Icon(statusIcon, color: statusColor, size: 32),
-                  const SizedBox(height: 12),
-                  Text(
-                    taskId,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.onSurface,
-                    ),
+              return Container(
+                width: 220,
+                padding:
+                    const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: statusColor
+                      .withOpacity(0.06),
+                  borderRadius:
+                      BorderRadius.circular(14),
+                  border: Border.all(
+                    color: statusColor
+                        .withOpacity(0.45),
                   ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      status.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: statusColor,
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor:
+                          statusColor
+                              .withOpacity(0.15),
+                      child: Text(
+                        '${index + 1}',
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight:
+                              FontWeight.bold,
+                        ),
                       ),
                     ),
-                  )
-                ],
-              ),
-            );
-          }),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment
+                                .start,
+                        children: [
+                          Text(
+                            _displayTaskName(
+                              taskId,
+                            ),
+                            style:
+                                const TextStyle(
+                              fontWeight:
+                                  FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            _statusLabel(status),
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
-      ),
+        const SizedBox(height: 24),
+        const Text(
+          'Logi etapów',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 10),
+        ..._tasks.map((task) {
+          final taskId =
+              task['task_id']?.toString() ?? '-';
+
+          final status =
+              task['status'];
+
+          final statusColor =
+              _statusColor(
+            status,
+            colorScheme,
+          );
+
+          final logs =
+              task['log_excerpt']?.toString() ??
+                  '';
+
+          final error =
+              task['error_msg']?.toString() ??
+                  '';
+
+          return Card(
+            elevation: 0,
+            margin:
+                const EdgeInsets.only(bottom: 8),
+            child: ExpansionTile(
+              initiallyExpanded:
+                  status == 'failed',
+              leading: Icon(
+                status == 'success'
+                    ? Icons.check_circle
+                    : status == 'failed'
+                        ? Icons.error
+                        : Icons.info_outline,
+                color: statusColor,
+              ),
+              title: Text(
+                _displayTaskName(taskId),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: Text(
+                _statusLabel(status),
+              ),
+              children: [
+                Padding(
+                  padding:
+                      const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      if (error.isNotEmpty) ...[
+                        Text(
+                          error,
+                          style: TextStyle(
+                            color:
+                                colorScheme.error,
+                          ),
+                        ),
+                        const SizedBox(
+                          height: 10,
+                        ),
+                      ],
+                      Container(
+                        width: double.infinity,
+                        constraints:
+                            const BoxConstraints(
+                          maxHeight: 280,
+                        ),
+                        padding:
+                            const EdgeInsets.all(
+                          12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme
+                              .surfaceContainerHighest
+                              .withOpacity(0.4),
+                          borderRadius:
+                              BorderRadius.circular(
+                            8,
+                          ),
+                        ),
+                        child:
+                            SingleChildScrollView(
+                          child: SelectableText(
+                            logs.isEmpty
+                                ? 'Brak zapisanych logów '
+                                    'dla tego etapu.'
+                                : logs,
+                            style:
+                                const TextStyle(
+                              fontFamily:
+                                  'monospace',
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
     );
   }
 }
