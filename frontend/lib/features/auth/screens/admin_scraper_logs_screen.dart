@@ -1,25 +1,32 @@
-import 'package:flutter/material.dart';
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import 'package:tonten/core/api/api_client.dart';
+
 import '../widgets/pipeline_graph_widget.dart';
 
 class AdminScraperLogsScreen extends StatefulWidget {
-  final int scraperId;
-  final String spiderName;
+  final int clientId;
+  final String clientName;
+  final String scheduleLabel;
 
   const AdminScraperLogsScreen({
     super.key,
-    required this.scraperId,
-    required this.spiderName,
+    required this.clientId,
+    required this.clientName,
+    required this.scheduleLabel,
   });
 
   @override
-  State<AdminScraperLogsScreen> createState() => _AdminScraperLogsScreenState();
+  State<AdminScraperLogsScreen> createState() =>
+      _AdminScraperLogsScreenState();
 }
 
-class _AdminScraperLogsScreenState extends State<AdminScraperLogsScreen> {
+class _AdminScraperLogsScreenState
+    extends State<AdminScraperLogsScreen> {
   bool _isLoading = true;
   List<dynamic> _runs = [];
+  String? _error;
 
   @override
   void initState() {
@@ -28,192 +35,325 @@ class _AdminScraperLogsScreenState extends State<AdminScraperLogsScreen> {
   }
 
   Future<void> _fetchRuns() async {
-    setState(() => _isLoading = true);
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
+
     try {
       final response = await ApiClient.get(
-        Uri.parse("/api/admin/scrapers/${widget.scraperId}/runs"),
+        Uri.parse(
+          "/api/admin/clients/"
+          "${widget.clientId}/pipeline-runs",
+        ),
       );
+
       final data = jsonDecode(response.body);
-      if (response.statusCode == 200 && data['ok'] == true) {
-        setState(() => _runs = data['runs'] ?? []);
+
+      if (response.statusCode == 200 &&
+          data['ok'] == true) {
+        if (mounted) {
+          setState(() {
+            _runs = data['runs'] ?? [];
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _error = data['error']?.toString() ??
+                'Nie udało się pobrać historii.';
+          });
+        }
       }
     } catch (e) {
-      debugPrint("Error fetching scraper runs: $e");
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+        });
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  List<Widget> _buildParsedLogs(String logsText) {
-    if (logsText.isEmpty) return [const Text('Brak logów')];
-    
-    final lines = logsText.split('\n');
-    final List<Widget> widgets = [];
-    
-    for (var line in lines) {
-      if (line.trim().isEmpty) continue;
-      
-      Color textColor = Theme.of(context).brightness == Brightness.dark ? Colors.white70 : Colors.black87;
-      IconData icon = Icons.info_outline;
-      Color iconColor = Colors.grey;
+  DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
 
-      final lowerLine = line.toLowerCase();
-      bool isImportant = false;
+    return DateTime.tryParse(
+      value.toString(),
+    )?.toLocal();
+  }
 
-      if (lowerLine.contains('error') || lowerLine.contains('exception') || lowerLine.contains('traceback') || lowerLine.contains('fail')) {
-        textColor = Colors.red;
-        icon = Icons.error;
-        iconColor = Colors.red;
-        isImportant = true;
-      } else if (lowerLine.contains('warning')) {
-        textColor = Colors.orange;
-        icon = Icons.warning;
-        iconColor = Colors.orange;
-        isImportant = true;
-      } else if (lowerLine.contains('success') || lowerLine.contains('finished') || lowerLine.contains('done') || lowerLine.contains('info: closing spider') || lowerLine.contains('spider opened')) {
-        textColor = Colors.green;
-        icon = Icons.check_circle;
-        iconColor = Colors.green;
-        isImportant = true;
-      } else if (lowerLine.contains('[scraper]') || lowerLine.contains('[ingest]') || lowerLine.contains('[matching]') || lowerLine.contains('statscollector') || lowerLine.contains('item_scraped_count')) {
-        textColor = Colors.blue;
-        icon = Icons.info_outline;
-        iconColor = Colors.blue;
-        isImportant = true;
-      }
+  String _formatDate(DateTime? date) {
+    if (date == null) return '-';
 
-      if (!isImportant && !lowerLine.contains('critical')) {
-        continue; // Pomijamy wszystkie inne logi (szczególnie DEBUG i INFO ze Scrapy)
-      }
+    String twoDigits(int number) =>
+        number.toString().padLeft(2, '0');
 
-      widgets.add(
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 16, color: iconColor),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  line.trim(),
-                  style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: textColor),
-                ),
-              ),
-            ],
-          ),
-        )
-      );
+    return '${twoDigits(date.day)}.'
+        '${twoDigits(date.month)}.'
+        '${date.year}';
+  }
+
+  String _formatTime(DateTime? date) {
+    if (date == null) return '-';
+
+    String twoDigits(int number) =>
+        number.toString().padLeft(2, '0');
+
+    return '${twoDigits(date.hour)}:'
+        '${twoDigits(date.minute)}:'
+        '${twoDigits(date.second)}';
+  }
+
+  String _formatDuration(dynamic value) {
+    final seconds = int.tryParse(
+      value?.toString() ?? '',
+    );
+
+    if (seconds == null) return 'Trwa...';
+
+    final duration = Duration(seconds: seconds);
+
+    if (duration.inHours > 0) {
+      return '${duration.inHours}h '
+          '${duration.inMinutes.remainder(60)}m';
     }
-    
-    return widgets;
+
+    return '${duration.inMinutes}m '
+        '${duration.inSeconds.remainder(60)}s';
+  }
+
+  Color _statusColor(
+    dynamic value,
+    ColorScheme colorScheme,
+  ) {
+    switch (value?.toString().toLowerCase()) {
+      case 'success':
+        return Colors.green;
+      case 'failed':
+        return colorScheme.error;
+      case 'running':
+        return Colors.blue;
+      default:
+        return colorScheme.onSurfaceVariant;
+    }
+  }
+
+  String _statusLabel(dynamic value) {
+    switch (value?.toString().toLowerCase()) {
+      case 'success':
+        return 'Sukces';
+      case 'failed':
+        return 'Błąd';
+      case 'running':
+        return 'W trakcie';
+      default:
+        return 'Nieznany';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final colorScheme =
+        Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Historia: ${widget.spiderName}'),
+        title: Text(
+          'Pipeline: ${widget.clientName}',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _fetchRuns,
             tooltip: 'Odśwież',
-          )
+            onPressed: _fetchRuns,
+          ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _runs.isEmpty
-              ? const Center(child: Text('Brak historii uruchomień dla tego scrapera.'))
-              : ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _runs.length,
-                  itemBuilder: (context, index) {
-                    final run = _runs[index];
-                    final status = run['status'] ?? 'unknown';
-                    Color statusColor = Colors.grey;
-                    if (status == 'success') statusColor = Colors.green;
-                    else if (status == 'failed') statusColor = Colors.red;
-                    else if (status == 'running') statusColor = Colors.blue;
-
-                    final startedAt = run['started_at'] != null 
-                        ? DateTime.parse(run['started_at']).toLocal()
-                        : null;
-                        
-                    final finishedAt = run['finished_at'] != null 
-                        ? DateTime.parse(run['finished_at']).toLocal()
-                        : null;
-
-                    String durationStr = 'Trwa...';
-                    if (startedAt != null && finishedAt != null) {
-                      final diff = finishedAt.difference(startedAt);
-                      durationStr = '${diff.inMinutes}m ${diff.inSeconds % 60}s';
-                    }
-
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
-                      elevation: 0,
-                      child: ExpansionTile(
-                        initiallyExpanded: index == 0,
-                        leading: CircleAvatar(
-                          backgroundColor: statusColor.withOpacity(0.2),
-                          child: Icon(
-                            status == 'success' ? Icons.check : (status == 'failed' ? Icons.error : Icons.autorenew),
-                            color: statusColor,
-                          ),
-                        ),
-                        title: Text('Data: ${startedAt?.toString().substring(0, 10) ?? '-'}'),
-                        subtitle: Text('Start: ${startedAt?.toString().substring(11, 19) ?? '-'} | Koniec: ${finishedAt?.toString().substring(11, 19) ?? '-'} | Czas: $durationStr'),
+          ? const Center(
+              child: CircularProgressIndicator(),
+            )
+          : _error != null
+              ? Center(
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: colorScheme.error,
+                    ),
+                  ),
+                )
+              : ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: colorScheme
+                            .primaryContainer
+                            .withOpacity(0.35),
+                        borderRadius:
+                            BorderRadius.circular(16),
+                      ),
+                      child: Row(
                         children: [
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: colorScheme.surface,
-                              border: Border(top: BorderSide(color: colorScheme.outlineVariant)),
-                              borderRadius: const BorderRadius.only(
-                                bottomLeft: Radius.circular(12),
-                                bottomRight: Radius.circular(12),
-                              ),
-                            ),
+                          Icon(
+                            Icons.account_tree_outlined,
+                            size: 42,
+                            color: colorScheme.primary,
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
-                                if (run['error_msg'] != null && run['error_msg'].toString().isNotEmpty) ...[
-                                  const Text('Błąd:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
-                                  Text(run['error_msg'], style: const TextStyle(color: Colors.red)),
-                                  const SizedBox(height: 16),
-                                ],
-                                const Text('Przebieg zadań Airflow:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                const SizedBox(height: 8),
-                                PipelineGraphWidget(pipelineRunId: run['pipeline_run_id'], spiderName: widget.spiderName),
-                                const SizedBox(height: 24),
-                                const Text('Zdarzenia / Logi:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                const SizedBox(height: 8),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                                    borderRadius: BorderRadius.circular(8),
+                                Text(
+                                  widget.clientName,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight:
+                                        FontWeight.bold,
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: _buildParsedLogs(run['log_excerpt'] ?? ''),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  widget.scheduleLabel,
+                                  style: TextStyle(
+                                    color: colorScheme
+                                        .onSurfaceVariant,
                                   ),
                                 ),
                               ],
                             ),
-                          )
+                          ),
                         ],
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Historia uruchomień',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (_runs.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Center(
+                          child: Text(
+                            'Brak historii pipeline’u.',
+                          ),
+                        ),
+                      )
+                    else
+                      ...List.generate(
+                        _runs.length,
+                        (index) {
+                          final run = _runs[index];
+
+                          final startedAt =
+                              _parseDate(
+                            run['started_at'],
+                          );
+
+                          final finishedAt =
+                              _parseDate(
+                            run['finished_at'],
+                          );
+
+                          final status =
+                              run['status'];
+
+                          final statusColor =
+                              _statusColor(
+                            status,
+                            colorScheme,
+                          );
+
+                          return Card(
+                            margin:
+                                const EdgeInsets.only(
+                              bottom: 14,
+                            ),
+                            elevation: 0,
+                            child: ExpansionTile(
+                              initiallyExpanded:
+                                  index == 0,
+                              leading: CircleAvatar(
+                                backgroundColor:
+                                    statusColor
+                                        .withOpacity(0.15),
+                                child: Icon(
+                                  status == 'success'
+                                      ? Icons.check
+                                      : status == 'failed'
+                                          ? Icons.error
+                                          : Icons.autorenew,
+                                  color: statusColor,
+                                ),
+                              ),
+                              title: Row(
+                                children: [
+                                  Text(
+                                    _formatDate(
+                                      startedAt,
+                                    ),
+                                    style:
+                                        const TextStyle(
+                                      fontWeight:
+                                          FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(
+                                    width: 10,
+                                  ),
+                                  Text(
+                                    _statusLabel(
+                                      status,
+                                    ),
+                                    style: TextStyle(
+                                      color:
+                                          statusColor,
+                                      fontWeight:
+                                          FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              subtitle: Text(
+                                'Start: '
+                                '${_formatTime(startedAt)}'
+                                '  •  Koniec: '
+                                '${_formatTime(finishedAt)}'
+                                '  •  Czas: '
+                                '${_formatDuration(run['duration_seconds'])}',
+                              ),
+                              children: [
+                                Padding(
+                                  padding:
+                                      const EdgeInsets
+                                          .all(18),
+                                  child:
+                                      PipelineGraphWidget(
+                                    pipelineRunId:
+                                        run[
+                                            'pipeline_run_id'],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
                 ),
     );
   }

@@ -12,13 +12,29 @@ import xml.etree.ElementTree as ET
 from utils import get_db, hash_password, generate_store_prefix, login_required, admin_required
 from routes.products import products_bp
 from routes.auth import auth_bp
+from datetime import timedelta
 
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "super-tajny-klucz")
 
-CORS(app, supports_credentials=True)
+app.secret_key = os.environ.get(
+    "SECRET_KEY",
+    "super-tajny-klucz"
+)
+
+app.config.update(
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+    SESSION_REFRESH_EACH_REQUEST=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=False,
+)
+
+CORS(
+    app,
+    supports_credentials=True,
+)
 
 
 
