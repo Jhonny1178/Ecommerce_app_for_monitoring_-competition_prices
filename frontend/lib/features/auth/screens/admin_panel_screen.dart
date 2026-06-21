@@ -1920,52 +1920,30 @@ Widget _buildScrapersTab(ColorScheme colorScheme) {
                           });
                         },
                         cells: [
-                          DataCell(
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  backgroundColor:
-                                      colorScheme
-                                          .primaryContainer,
-                                  child: Icon(
-                                    Icons.store_outlined,
-                                    color:
-                                        colorScheme.primary,
+                            DataCell(
+                              Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    client['client_name']?.toString() ?? '-',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Column(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment
-                                          .center,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment
-                                          .start,
-                                  children: [
-                                    Text(
-                                      client['client_name']
-                                              ?.toString() ??
-                                          '-',
-                                      style:
-                                          const TextStyle(
-                                        fontWeight:
-                                            FontWeight.bold,
-                                      ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    '${client['scrapers_count'] ?? 0} scraperów',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: colorScheme.onSurfaceVariant,
                                     ),
-                                    Text(
-                                      '${client['scrapers_count'] ?? 0} '
-                                      'scraperów',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: colorScheme
-                                            .onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
+
+
                           DataCell(
                             SizedBox(
                               width: 320,

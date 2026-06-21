@@ -21,10 +21,15 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
   bool _isLoading = true;
   bool _isFetching = false;
 
-  List<dynamic> _tasks = [];
+  List<Map<String, dynamic>> _tasks = [];
   String? _error;
 
   Timer? _refreshTimer;
+
+  final Set<String> _expandedTaskIds = <String>{};
+  final Map<String, String> _previousStatuses = <String, String>{};
+
+  int _requestGeneration = 0;
 
   @override
   void initState() {
@@ -46,24 +51,38 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
   ) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.pipelineRunId != widget.pipelineRunId) {
-      _refreshTimer?.cancel();
-
-      _tasks = [];
-      _error = null;
-
-      if (widget.pipelineRunId == null) {
-        setState(() {
-          _isLoading = false;
-          _error = 'Brak ID pipeline’u.';
-        });
-
-        return;
-      }
-
-      _fetchTasks(showLoader: true);
-      _startRefreshTimer();
+    if (oldWidget.pipelineRunId == widget.pipelineRunId) {
+      return;
     }
+
+    _requestGeneration++;
+    _refreshTimer?.cancel();
+
+    _isFetching = false;
+    _tasks = [];
+    _error = null;
+
+    _expandedTaskIds.clear();
+    _previousStatuses.clear();
+
+    if (widget.pipelineRunId == null) {
+      setState(() {
+        _isLoading = false;
+        _error = 'Brak ID pipeline’u.';
+      });
+
+      return;
+    }
+
+    _fetchTasks(showLoader: true);
+    _startRefreshTimer();
+  }
+
+  @override
+  void dispose() {
+    _requestGeneration++;
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   void _startRefreshTimer() {
@@ -77,18 +96,14 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
     );
   }
 
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    super.dispose();
-  }
-
   Future<void> _fetchTasks({
     bool showLoader = false,
   }) async {
     if (_isFetching || widget.pipelineRunId == null) {
       return;
     }
+
+    final int currentGeneration = _requestGeneration;
 
     _isFetching = true;
 
@@ -107,11 +122,15 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
         ),
       );
 
-      final contentType =
+      if (!mounted || currentGeneration != _requestGeneration) {
+        return;
+      }
+
+      final String contentType =
           response.headers['content-type'] ?? '';
 
       if (!contentType.contains('application/json')) {
-        final preview = response.body.length > 300
+        final String preview = response.body.length > 300
             ? response.body.substring(0, 300)
             : response.body;
 
@@ -129,72 +148,129 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
         );
       }
 
-      if (response.statusCode == 200 &&
-          decoded['ok'] == true) {
-        final tasks = List<dynamic>.from(
-          decoded['tasks'] ?? [],
+      if (response.statusCode != 200 || decoded['ok'] != true) {
+        throw Exception(
+          decoded['error']?.toString() ??
+              'Nie udało się pobrać zadań pipeline’u.',
         );
+      }
 
-        tasks.removeWhere((task) {
-          final taskId =
-              task['task_id']?.toString() ?? '';
+      final List<Map<String, dynamic>> incomingTasks = [];
 
-          final status = task['status']
-                  ?.toString()
-                  .toLowerCase() ??
-              '';
+      final dynamic rawTasks = decoded['tasks'];
 
-          return taskId.startsWith(
-                'finish_pipeline_',
-              ) &&
-              status == 'skipped';
-        });
-
-        tasks.sort((first, second) {
-          final firstId =
-              first['task_id']?.toString() ?? '';
-
-          final secondId =
-              second['task_id']?.toString() ?? '';
-
-          final orderResult = _taskOrder(
-            firstId,
-          ).compareTo(
-            _taskOrder(secondId),
-          );
-
-          if (orderResult != 0) {
-            return orderResult;
+      if (rawTasks is List) {
+        for (final dynamic rawTask in rawTasks) {
+          if (rawTask is Map) {
+            incomingTasks.add(
+              Map<String, dynamic>.from(rawTask),
+            );
           }
-
-          return firstId.compareTo(secondId);
-        });
-
-        if (mounted) {
-          setState(() {
-            _tasks = tasks;
-            _error = null;
-            _isLoading = false;
-          });
-        }
-      } else {
-        final message =
-            decoded['error']?.toString() ??
-                'Błąd pobierania zadań.';
-
-        if (mounted && _tasks.isEmpty) {
-          setState(() {
-            _error = message;
-            _isLoading = false;
-          });
-        } else {
-          debugPrint(
-            'Błąd odświeżania pipeline’u: $message',
-          );
         }
       }
+
+      incomingTasks.removeWhere((task) {
+        final String taskId =
+            task['task_id']?.toString() ?? '';
+
+        final String status =
+            task['status']?.toString().toLowerCase() ?? '';
+
+        return taskId.startsWith('finish_pipeline_') &&
+            status == 'skipped';
+      });
+
+      incomingTasks.sort((first, second) {
+        final String firstId =
+            first['task_id']?.toString() ?? '';
+
+        final String secondId =
+            second['task_id']?.toString() ?? '';
+
+        final int orderResult =
+            _taskOrder(firstId).compareTo(
+          _taskOrder(secondId),
+        );
+
+        if (orderResult != 0) {
+          return orderResult;
+        }
+
+        return firstId.compareTo(secondId);
+      });
+
+      final Map<String, Map<String, dynamic>> oldTasks = {
+        for (final task in _tasks)
+          task['task_id']?.toString() ?? '': task,
+      };
+
+      final List<Map<String, dynamic>> mergedTasks =
+          incomingTasks.map((task) {
+        final String taskId =
+            task['task_id']?.toString() ?? '';
+
+        final Map<String, dynamic>? oldTask = oldTasks[taskId];
+
+        if (oldTask != null) {
+          final String incomingLogs = _cleanLogText(
+            task['log_excerpt'] ?? task['logs'],
+          );
+
+          final String oldLogs = _cleanLogText(
+            oldTask['log_excerpt'] ?? oldTask['logs'],
+          );
+
+          if (incomingLogs.isEmpty && oldLogs.isNotEmpty) {
+            task['log_excerpt'] = oldLogs;
+          } else if (incomingLogs.length < oldLogs.length) {
+            task['log_excerpt'] = oldLogs;
+          }
+        }
+
+        return task;
+      }).toList();
+
+      for (final Map<String, dynamic> task in mergedTasks) {
+        final String taskId =
+            task['task_id']?.toString() ?? '';
+
+        if (taskId.isEmpty) {
+          continue;
+        }
+
+        final String currentStatus =
+            task['status']?.toString().toLowerCase() ?? '';
+
+        final String? previousStatus =
+            _previousStatuses[taskId];
+
+        if (currentStatus == 'running' &&
+            previousStatus != 'running') {
+          _expandedTaskIds.add(taskId);
+        }
+
+        if (currentStatus == 'failed') {
+          _expandedTaskIds.add(taskId);
+        }
+
+        _previousStatuses[taskId] = currentStatus;
+      }
+
+      if (!mounted || currentGeneration != _requestGeneration) {
+        return;
+      }
+
+      setState(() {
+        _tasks = mergedTasks;
+        _error = null;
+        _isLoading = false;
+      });
     } catch (e) {
-      if (mounted && _tasks.isEmpty) {
+      if (!mounted || currentGeneration != _requestGeneration) {
+        return;
+      }
+
+      if (_tasks.isEmpty) {
         setState(() {
           _error = e.toString();
           _isLoading = false;
@@ -205,9 +281,13 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
         );
       }
     } finally {
-      _isFetching = false;
+      if (currentGeneration == _requestGeneration) {
+        _isFetching = false;
+      }
 
-      if (mounted && _isLoading) {
+      if (mounted &&
+          currentGeneration == _requestGeneration &&
+          _isLoading) {
         setState(() {
           _isLoading = false;
         });
@@ -216,7 +296,7 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
   }
 
   int _taskOrder(String taskId) {
-    final value = taskId.toLowerCase();
+    final String value = taskId.toLowerCase();
 
     if (value.contains('reset_competitors')) {
       return 20;
@@ -251,7 +331,7 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
   }
 
   String _displayTaskName(String taskId) {
-    final value = taskId.toLowerCase();
+    final String value = taskId.toLowerCase();
 
     if (value.contains('reset_competitors')) {
       return 'Przygotowanie danych konkurencji';
@@ -271,7 +351,7 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
 
     if (value.startsWith('scrape_') ||
         value.startsWith('scraper_')) {
-      final cleanedName = taskId
+      final String cleanedName = taskId
           .replaceFirst('scrape_', '')
           .replaceFirst('scraper_', '');
 
@@ -338,7 +418,7 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
   }
 
   String _cleanLogText(dynamic value) {
-    final text = value?.toString() ?? '';
+    final String text = value?.toString() ?? '';
 
     return text
         .replaceAll(
@@ -349,19 +429,59 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
         .trim();
   }
 
-  Widget _buildLogContainer({
-    required String taskId,
+  String _getTaskLogs(Map<String, dynamic> task) {
+    final String excerpt =
+        _cleanLogText(task['log_excerpt']);
+
+    if (excerpt.isNotEmpty) {
+      return excerpt;
+    }
+
+    return _cleanLogText(task['logs']);
+  }
+
+  String _getTaskError(Map<String, dynamic> task) {
+    final String errorMessage =
+        _cleanLogText(task['error_msg']);
+
+    if (errorMessage.isNotEmpty) {
+      return errorMessage;
+    }
+
+    return _cleanLogText(task['error']);
+  }
+
+  String _limitLogLines(String logs) {
+    const int maxLines = 120;
+
+    final List<String> lines = logs.split('\n');
+
+    if (lines.length <= maxLines) {
+      return logs;
+    }
+
+    final List<String> visibleLines =
+        lines.sublist(lines.length - maxLines);
+
+    return [
+      '--- pokazano ostatnie $maxLines z ${lines.length} linii ---',
+      '',
+      ...visibleLines,
+    ].join('\n');
+  }
+
+  Widget _buildLogContent({
     required String logs,
   }) {
+    final ColorScheme colorScheme =
+        Theme.of(context).colorScheme;
+
     if (logs.isEmpty) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Theme.of(context)
-              .colorScheme
-              .surfaceContainerHighest
-              .withOpacity(0.35),
+          color: colorScheme.surfaceContainerHighest.withOpacity(0.35),
           borderRadius: BorderRadius.circular(8),
         ),
         child: const Row(
@@ -381,47 +501,192 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
       );
     }
 
-    return RepaintBoundary(
-      key: ValueKey<String>(
-        'pipeline-log-'
-        '${widget.pipelineRunId}-'
-        '$taskId-'
-        '${logs.hashCode}',
+    final String visibleLogs = _limitLogLines(logs);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: const Color(0xFF3A3A3A),
+        ),
       ),
-      child: Container(
-        width: double.infinity,
-        constraints: const BoxConstraints(
-          minHeight: 80,
-          maxHeight: 320,
+      child: Text(
+        visibleLogs,
+        softWrap: true,
+        style: const TextStyle(
+          color: Color(0xFFE6EDF3),
+          fontFamily: 'monospace',
+          fontSize: 12,
+          height: 1.45,
         ),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: const Color(0xFF3A3A3A),
-          ),
+      ),
+    );
+  }
+
+  Widget _buildTaskSection(
+    Map<String, dynamic> task,
+    ColorScheme colorScheme,
+  ) {
+    final String taskId =
+        task['task_id']?.toString() ?? '-';
+
+    final dynamic status = task['status'];
+
+    final String normalizedStatus =
+        status?.toString().toLowerCase() ?? '';
+
+    final Color statusColor =
+        _statusColor(status, colorScheme);
+
+    final String logs = _getTaskLogs(task);
+    final String error = _getTaskError(task);
+
+    final bool isExpanded =
+        _expandedTaskIds.contains(taskId);
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: colorScheme.outlineVariant,
         ),
-        child: SingleChildScrollView(
-          child: SelectionArea(
-            child: Text(
-              logs,
-              style: const TextStyle(
-                color: Color(0xFFE6EDF3),
-                fontFamily: 'monospace',
-                fontSize: 12,
-                height: 1.45,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                setState(() {
+                  if (isExpanded) {
+                    _expandedTaskIds.remove(taskId);
+                  } else {
+                    _expandedTaskIds.add(taskId);
+                  }
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _statusIcon(status),
+                      color: statusColor,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _displayTaskName(taskId),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            _statusLabel(status),
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      isExpanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
+          if (isExpanded) ...[
+            Divider(
+              height: 1,
+              color: colorScheme.outlineVariant,
+            ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (error.isNotEmpty) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        error,
+                        style: TextStyle(
+                          color: colorScheme.onErrorContainer,
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  _buildLogContent(
+                    logs: logs,
+                  ),
+                  if (normalizedStatus == 'running') ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: statusColor,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Log jest odświeżany automatycznie co 3 sekundy.',
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme =
+    final ColorScheme colorScheme =
         Theme.of(context).colorScheme;
 
     if (_isLoading) {
@@ -474,9 +739,7 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
         width: double.infinity,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: colorScheme
-              .surfaceContainerHighest
-              .withOpacity(0.35),
+          color: colorScheme.surfaceContainerHighest.withOpacity(0.35),
           borderRadius: BorderRadius.circular(12),
         ),
         child: const Text(
@@ -486,8 +749,7 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
     }
 
     return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
@@ -518,48 +780,37 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
           children: List.generate(
             _tasks.length,
             (index) {
-              final task = _tasks[index];
+              final Map<String, dynamic> task =
+                  _tasks[index];
 
-              final taskId =
-                  task['task_id']?.toString() ??
-                      '-';
+              final String taskId =
+                  task['task_id']?.toString() ?? '-';
 
-              final status = task['status'];
+              final dynamic status = task['status'];
 
-              final statusColor =
-                  _statusColor(
-                status,
-                colorScheme,
-              );
+              final Color statusColor =
+                  _statusColor(status, colorScheme);
 
               return Container(
                 width: 220,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(
-                    0.06,
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(14),
+                  color: statusColor.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: statusColor.withOpacity(
-                      0.45,
-                    ),
+                    color: statusColor.withOpacity(0.45),
                   ),
                 ),
                 child: Row(
                   children: [
                     CircleAvatar(
                       backgroundColor:
-                          statusColor.withOpacity(
-                        0.15,
-                      ),
+                          statusColor.withOpacity(0.15),
                       child: Text(
                         '${index + 1}',
                         style: TextStyle(
                           color: statusColor,
-                          fontWeight:
-                              FontWeight.bold,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
@@ -570,13 +821,9 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
                             CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _displayTaskName(
-                              taskId,
-                            ),
-                            style:
-                                const TextStyle(
-                              fontWeight:
-                                  FontWeight.bold,
+                            _displayTaskName(taskId),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -605,154 +852,12 @@ class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
           ),
         ),
         const SizedBox(height: 10),
-        ..._tasks.map((task) {
-          final taskId =
-              task['task_id']?.toString() ?? '-';
-
-          final status = task['status'];
-
-          final normalizedStatus =
-              status?.toString().toLowerCase() ??
-                  '';
-
-          final statusColor =
-              _statusColor(
-            status,
+        ..._tasks.map(
+          (task) => _buildTaskSection(
+            task,
             colorScheme,
-          );
-
-          final logs = _cleanLogText(
-            task['log_excerpt'] ??
-                task['logs'],
-          );
-
-          final error = _cleanLogText(
-            task['error_msg'] ??
-                task['error'],
-          );
-
-          final shouldExpand =
-              normalizedStatus == 'failed' ||
-                  normalizedStatus == 'running';
-
-          return Card(
-            elevation: 0,
-            margin:
-                const EdgeInsets.only(bottom: 8),
-            color: colorScheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(12),
-              side: BorderSide(
-                color: colorScheme.outlineVariant,
-              ),
-            ),
-            child: ExpansionTile(
-              key: PageStorageKey<String>(
-                'pipeline-task-'
-                '${widget.pipelineRunId}-'
-                '$taskId',
-              ),
-              maintainState: true,
-              initiallyExpanded: shouldExpand,
-              leading: Icon(
-                _statusIcon(status),
-                color: statusColor,
-              ),
-              title: Text(
-                _displayTaskName(taskId),
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              subtitle: Text(
-                _statusLabel(status),
-                style: TextStyle(
-                  color: statusColor,
-                ),
-              ),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    14,
-                    0,
-                    14,
-                    14,
-                  ),
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    children: [
-                      if (error.isNotEmpty) ...[
-                        Container(
-                          width: double.infinity,
-                          padding:
-                              const EdgeInsets.all(
-                            12,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme
-                                .errorContainer,
-                            borderRadius:
-                                BorderRadius.circular(
-                              8,
-                            ),
-                          ),
-                          child: SelectionArea(
-                            child: Text(
-                              error,
-                              style: TextStyle(
-                                color: colorScheme
-                                    .onErrorContainer,
-                                fontFamily:
-                                    'monospace',
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                      _buildLogContainer(
-                        taskId: taskId,
-                        logs: logs,
-                      ),
-                      if (normalizedStatus ==
-                          'running') ...[
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            SizedBox(
-                              width: 14,
-                              height: 14,
-                              child:
-                                  CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: statusColor,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Log jest odświeżany '
-                                'automatycznie co 3 sekundy.',
-                                style: TextStyle(
-                                  color: colorScheme
-                                      .onSurfaceVariant,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
+          ),
+        ),
       ],
     );
   }
