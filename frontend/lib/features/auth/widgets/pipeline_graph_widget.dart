@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tonten/core/api/api_client.dart';
 
@@ -21,92 +21,126 @@ class _PipelineGraphWidgetState
   bool _isLoading = true;
   List<dynamic> _tasks = [];
   String? _error;
+  Timer? _refreshTimer;
+  bool _isFetching = false;
 
-  @override
-  void initState() {
+ @override
+ void initState() {
     super.initState();
 
     if (widget.pipelineRunId == null) {
-      _isLoading = false;
-      _error = 'Brak ID pipeline’u.';
-    } else {
-      _fetchTasks();
+    _isLoading = false;
+    _error = 'Brak ID pipeline’u.';
+    return;
     }
+
+    _fetchTasks(showLoader: true);
+
+    _refreshTimer = Timer.periodic(
+    const Duration(seconds: 3),
+    (_) {
+      _fetchTasks();
+    },
+    );
+    }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
-  Future<void> _fetchTasks() async {
-    try {
-      final response = await ApiClient.get(
-        Uri.parse(
-          "/api/admin/pipeline_runs/"
-          "${widget.pipelineRunId}/tasks",
-        ),
+  Future<void> _fetchTasks({
+  bool showLoader = false,
+}) async {
+  if (_isFetching ||
+      widget.pipelineRunId == null) {
+    return;
+  }
+
+  _isFetching = true;
+
+  if (showLoader && mounted) {
+    setState(() {
+      _isLoading = true;
+    });
+  }
+
+  try {
+    final response = await ApiClient.get(
+      Uri.parse(
+        "/api/admin/pipeline_runs/"
+        "${widget.pipelineRunId}/tasks",
+      ),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode == 200 &&
+        data['ok'] == true) {
+      final tasks = List<dynamic>.from(
+        data['tasks'] ?? [],
       );
 
-      final data = jsonDecode(response.body);
+      tasks.removeWhere((task) {
+        final taskId =
+            task['task_id']?.toString() ?? '';
 
-      if (response.statusCode == 200 &&
-          data['ok'] == true) {
-        final tasks = List<dynamic>.from(
-          data['tasks'] ?? [],
+        final status =
+            task['status']?.toString() ?? '';
+
+        return taskId.startsWith(
+                  'finish_pipeline_',
+                ) &&
+            status == 'skipped';
+      });
+
+      tasks.sort((first, second) {
+        final firstId =
+            first['task_id']?.toString() ?? '';
+
+        final secondId =
+            second['task_id']?.toString() ?? '';
+
+        final orderResult =
+            _taskOrder(firstId).compareTo(
+          _taskOrder(secondId),
         );
 
-        tasks.removeWhere((task) {
-          final taskId =
-              task['task_id']?.toString() ?? '';
-
-          final status =
-              task['status']?.toString() ?? '';
-
-          return taskId.startsWith(
-                    'finish_pipeline_',
-                  ) &&
-              status == 'skipped';
-        });
-
-        tasks.sort((first, second) {
-          final firstId =
-              first['task_id']?.toString() ?? '';
-
-          final secondId =
-              second['task_id']?.toString() ?? '';
-
-          final orderResult =
-              _taskOrder(firstId).compareTo(
-            _taskOrder(secondId),
-          );
-
-          if (orderResult != 0) {
-            return orderResult;
-          }
-
-          return firstId.compareTo(secondId);
-        });
-
-        if (mounted) {
-          setState(() {
-            _tasks = tasks;
-            _isLoading = false;
-          });
+        if (orderResult != 0) {
+          return orderResult;
         }
-      } else {
-        if (mounted) {
-          setState(() {
-            _error = data['error']?.toString() ??
-                'Błąd pobierania zadań.';
-            _isLoading = false;
-          });
-        }
-      }
-    } catch (e) {
+
+        return firstId.compareTo(secondId);
+      });
+
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _tasks = tasks;
+          _error = null;
+          _isLoading = false;
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _error = data['error']?.toString() ??
+              'Błąd pobierania zadań.';
           _isLoading = false;
         });
       }
     }
+  } catch (e) {
+    if (mounted) {
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  } finally {
+    _isFetching = false;
   }
+}
 
   int _taskOrder(String taskId) {
     final value = taskId.toLowerCase();
@@ -349,9 +383,11 @@ class _PipelineGraphWidgetState
             colorScheme,
           );
 
-          final logs =
-              task['log_excerpt']?.toString() ??
-                  '';
+          final logs = (
+              task['log_excerpt'] ??
+              task['logs'] ??
+              ''
+            ).toString().trim();
 
           final error =
               task['error_msg']?.toString() ??

@@ -7,7 +7,7 @@ from email.message import EmailMessage
 import string
 import random
 import datetime
-
+from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 from psycopg2 import errors
@@ -222,6 +222,39 @@ def _utc_iso(value):
         .isoformat()
         .replace("+00:00", "Z")
     )
+
+def _cron_as_polish_time(cron_expression):
+    try:
+        parts = cron_expression.split()
+
+        if len(parts) != 5:
+            return cron_expression
+
+        minute = int(parts[0])
+        hour = int(parts[1])
+
+        current_utc = datetime.datetime.now(
+            datetime.timezone.utc
+        )
+
+        scheduled_utc = current_utc.replace(
+            hour=hour,
+            minute=minute,
+            second=0,
+            microsecond=0,
+        )
+
+        scheduled_poland = scheduled_utc.astimezone(
+            ZoneInfo("Europe/Warsaw")
+        )
+
+        return (
+            "Codziennie o "
+            f"{scheduled_poland.strftime('%H:%M')}"
+        )
+
+    except Exception:
+        return cron_expression
 # ============================================================
 # Auth
 # ============================================================
@@ -1992,37 +2025,7 @@ def scraper_runs(scraper_id):
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@auth_bp.route("/api/admin/pipeline_runs/<int:run_id>/tasks", methods=["GET"])
-def pipeline_run_tasks(run_id):
-    if not session.get("is_admin"):
-        return jsonify({"ok": False, "error": "Unauthorized"}), 403
 
-    try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        cur.execute("""
-            SELECT 
-                id,
-                task_id,
-                status,
-                started_at::TEXT,
-                finished_at::TEXT,
-                error_msg
-            FROM pipeline_task_runs
-            WHERE pipeline_run_id = %s
-            ORDER BY started_at ASC
-        """, (run_id,))
-
-        tasks = cur.fetchall()
-
-        cur.close()
-        conn.close()
-
-        return jsonify({"ok": True, "tasks": tasks})
-
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ============================================================
@@ -2454,10 +2457,14 @@ def get_pipeline_clients():
             )
 
             item["duration_seconds"] = duration_seconds
-            item["schedule_cron"] = "0 9 * * *"
-            item["schedule_label"] = (
-                "Codziennie o 09:00 UTC "
-                "(11:00 latem, 10:00 zimą)"
+            schedule_cron = os.environ.get(
+                "PIPELINE_SCHEDULE_CRON",
+                "0 9 * * *",
+            )
+
+            item["schedule_cron"] = schedule_cron
+            item["schedule_label"] = _cron_as_polish_time(
+                schedule_cron
             )
 
             result.append(item)
@@ -2481,7 +2488,6 @@ def get_pipeline_clients():
 
         if conn:
             conn.close()
-
 
 @auth_bp.route(
     "/api/admin/clients/<int:client_id>/pipeline-runs",
@@ -2551,7 +2557,10 @@ def get_client_pipeline_runs(client_id):
                 pr.finished_at,
                 pr.error_msg
 
-            ORDER BY pr.started_at DESC, pr.id DESC
+            ORDER BY
+                pr.started_at DESC,
+                pr.id DESC
+
             LIMIT 50
         """, (client_id,))
 
@@ -2571,14 +2580,8 @@ def get_client_pipeline_runs(client_id):
                     (finished_at - started_at).total_seconds()
                 )
 
-            item["started_at"] = _utc_iso(
-                started_at
-            )
-
-            item["finished_at"] = _utc_iso(
-                finished_at
-            )
-
+            item["started_at"] = _utc_iso(started_at)
+            item["finished_at"] = _utc_iso(finished_at)
             item["duration_seconds"] = duration_seconds
 
             runs.append(item)
@@ -2593,6 +2596,156 @@ def get_client_pipeline_runs(client_id):
         })
 
     except Exception as e:
+        traceback.print_exc()
+
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+        }), 500
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
+
+@auth_bp.route(
+    "/api/admin/pipeline_runs/<int:pipeline_run_id>/tasks",
+    methods=["GET"],
+)
+@admin_required
+def get_pipeline_run_tasks(pipeline_run_id):
+    conn = None
+    cur = None
+
+    try:
+        conn = get_db()
+        cur = conn.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+
+        cur.execute("""
+            SELECT
+                id,
+                client_id,
+                pipeline_run_id,
+                task_id,
+                status,
+                started_at,
+                finished_at,
+                COALESCE(log_excerpt, '') AS log_excerpt,
+                COALESCE(error_msg, '') AS error_msg
+            FROM pipeline_task_runs
+            WHERE pipeline_run_id = %s
+            ORDER BY
+                started_at ASC NULLS LAST,
+                id ASC
+        """, (pipeline_run_id,))
+
+        rows = cur.fetchall()
+        tasks = []
+
+        for row in rows:
+            item = dict(row)
+
+            item["started_at"] = _utc_iso(
+                item.get("started_at")
+            )
+
+            item["finished_at"] = _utc_iso(
+                item.get("finished_at")
+            )
+
+            tasks.append(item)
+
+        return jsonify({
+            "ok": True,
+            "pipeline_run_id": pipeline_run_id,
+            "tasks": tasks,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+        }), 500
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
+
+@auth_bp.route(
+    "/api/admin/pipeline-runs/<int:pipeline_run_id>/delete",
+    methods=["POST"],
+)
+@admin_required
+def delete_pipeline_run(pipeline_run_id):
+    conn = None
+    cur = None
+
+    try:
+        conn = get_db_transaction()
+        cur = conn.cursor(
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+
+        cur.execute("""
+            SELECT
+                id,
+                status
+            FROM pipeline_runs
+            WHERE id = %s
+            LIMIT 1
+        """, (pipeline_run_id,))
+
+        pipeline_run = cur.fetchone()
+
+        if not pipeline_run:
+            conn.rollback()
+
+            return jsonify({
+                "ok": False,
+                "error": "Nie znaleziono przebiegu.",
+            }), 404
+
+        if pipeline_run["status"] == "running":
+            conn.rollback()
+
+            return jsonify({
+                "ok": False,
+                "error": (
+                    "Nie można usunąć przebiegu, "
+                    "który nadal trwa."
+                ),
+            }), 409
+
+        cur.execute("""
+            DELETE FROM pipeline_task_runs
+            WHERE pipeline_run_id = %s
+        """, (pipeline_run_id,))
+
+        cur.execute("""
+            DELETE FROM pipeline_runs
+            WHERE id = %s
+        """, (pipeline_run_id,))
+
+        conn.commit()
+
+        return jsonify({
+            "ok": True,
+            "message": "Przebieg został usunięty.",
+        })
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
         traceback.print_exc()
 
         return jsonify({

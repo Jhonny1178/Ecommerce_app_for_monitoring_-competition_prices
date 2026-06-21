@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -28,14 +29,39 @@ class _AdminScraperLogsScreenState
   List<dynamic> _runs = [];
   String? _error;
 
+  Timer? _runsRefreshTimer;
+  bool _isFetchingRuns = false;
+
   @override
   void initState() {
     super.initState();
-    _fetchRuns();
+
+    _fetchRuns(showLoader: true);
+
+    _runsRefreshTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) {
+        _fetchRuns();
+      },
+    );
   }
 
-  Future<void> _fetchRuns() async {
-    if (mounted) {
+  @override
+  void dispose() {
+    _runsRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchRuns({
+    bool showLoader = false,
+  }) async {
+    if (_isFetchingRuns) {
+      return;
+    }
+
+    _isFetchingRuns = true;
+
+    if (showLoader && mounted) {
       setState(() {
         _isLoading = true;
         _error = null;
@@ -57,31 +83,150 @@ class _AdminScraperLogsScreenState
         if (mounted) {
           setState(() {
             _runs = data['runs'] ?? [];
+            _error = null;
           });
         }
       } else {
-        if (mounted) {
+        final message = data['error']?.toString() ??
+            'Nie udało się pobrać historii.';
+
+        if (mounted && _runs.isEmpty) {
           setState(() {
-            _error = data['error']?.toString() ??
-                'Nie udało się pobrać historii.';
+            _error = message;
           });
+        } else {
+          debugPrint(
+            'Background pipeline refresh error: $message',
+          );
         }
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && _runs.isEmpty) {
         setState(() {
           _error = e.toString();
         });
+      } else {
+        debugPrint(
+          'Background pipeline refresh exception: $e',
+        );
       }
     } finally {
+      _isFetchingRuns = false;
+
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
 
+  Future<void> _deleteRun(
+    int pipelineRunId,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final colorScheme =
+            Theme.of(context).colorScheme;
+
+        return AlertDialog(
+          title: const Text(
+            'Usunąć przebieg?',
+          ),
+          content: const Text(
+            'Usunięte zostanie tylko to jedno '
+            'uruchomienie oraz logi jego etapów. '
+            'Pozostałe uruchomienia pozostaną bez zmian.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context, false);
+              },
+              child: const Text('Anuluj'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context, true);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: colorScheme.error,
+                foregroundColor:
+                    colorScheme.onError,
+              ),
+              icon: const Icon(
+                Icons.delete_outline,
+              ),
+              label: const Text('Usuń'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      final response = await ApiClient.post(
+        Uri.parse(
+          "/api/admin/pipeline-runs/"
+          "$pipelineRunId/delete",
+        ),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (!mounted) {
+        return;
+      }
+
+      if (response.statusCode == 200 &&
+          data['ok'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Wybrane uruchomienie zostało usunięte.',
+            ),
+          ),
+        );
+
+        await _fetchRuns();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              data['error']?.toString() ??
+                  'Nie udało się usunąć uruchomienia.',
+            ),
+            backgroundColor:
+                Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Błąd usuwania uruchomienia: $e',
+          ),
+          backgroundColor:
+              Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
   DateTime? _parseDate(dynamic value) {
-    if (value == null) return null;
+    if (value == null) {
+      return null;
+    }
 
     return DateTime.tryParse(
       value.toString(),
@@ -89,7 +234,9 @@ class _AdminScraperLogsScreenState
   }
 
   String _formatDate(DateTime? date) {
-    if (date == null) return '-';
+    if (date == null) {
+      return '-';
+    }
 
     String twoDigits(int number) =>
         number.toString().padLeft(2, '0');
@@ -100,7 +247,9 @@ class _AdminScraperLogsScreenState
   }
 
   String _formatTime(DateTime? date) {
-    if (date == null) return '-';
+    if (date == null) {
+      return '-';
+    }
 
     String twoDigits(int number) =>
         number.toString().padLeft(2, '0');
@@ -115,9 +264,13 @@ class _AdminScraperLogsScreenState
       value?.toString() ?? '',
     );
 
-    if (seconds == null) return 'Trwa...';
+    if (seconds == null) {
+      return 'Trwa...';
+    }
 
-    final duration = Duration(seconds: seconds);
+    final duration = Duration(
+      seconds: seconds,
+    );
 
     if (duration.inHours > 0) {
       return '${duration.inHours}h '
@@ -171,7 +324,9 @@ class _AdminScraperLogsScreenState
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Odśwież',
-            onPressed: _fetchRuns,
+            onPressed: () {
+              _fetchRuns(showLoader: true);
+            },
           ),
         ],
       ),
@@ -272,13 +427,30 @@ class _AdminScraperLogsScreenState
                           final status =
                               run['status'];
 
+                          final statusText =
+                              status
+                                  ?.toString()
+                                  .toLowerCase() ??
+                              '';
+
                           final statusColor =
                               _statusColor(
                             status,
                             colorScheme,
                           );
 
+                          final pipelineRunId =
+                              int.tryParse(
+                            run['pipeline_run_id']
+                                    ?.toString() ??
+                                '',
+                          );
+
                           return Card(
+                            key: PageStorageKey<String>(
+                              'pipeline-run-'
+                              '${pipelineRunId ?? index}',
+                            ),
                             margin:
                                 const EdgeInsets.only(
                               bottom: 14,
@@ -292,9 +464,10 @@ class _AdminScraperLogsScreenState
                                     statusColor
                                         .withOpacity(0.15),
                                 child: Icon(
-                                  status == 'success'
+                                  statusText == 'success'
                                       ? Icons.check
-                                      : status == 'failed'
+                                      : statusText ==
+                                              'failed'
                                           ? Icons.error
                                           : Icons.autorenew,
                                   color: statusColor,
@@ -337,15 +510,45 @@ class _AdminScraperLogsScreenState
                                 '${_formatDuration(run['duration_seconds'])}',
                               ),
                               children: [
+                                Align(
+                                  alignment:
+                                      Alignment.centerRight,
+                                  child: Padding(
+                                    padding:
+                                        const EdgeInsets.only(
+                                      right: 18,
+                                      top: 8,
+                                    ),
+                                    child: TextButton.icon(
+                                      onPressed:
+                                          statusText ==
+                                                      'running' ||
+                                                  pipelineRunId ==
+                                                      null
+                                              ? null
+                                              : () {
+                                                  _deleteRun(
+                                                    pipelineRunId,
+                                                  );
+                                                },
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                      ),
+                                      label: const Text(
+                                        'Usuń ten przebieg',
+                                      ),
+                                    ),
+                                  ),
+                                ),
                                 Padding(
                                   padding:
-                                      const EdgeInsets
-                                          .all(18),
+                                      const EdgeInsets.all(
+                                    18,
+                                  ),
                                   child:
                                       PipelineGraphWidget(
                                     pipelineRunId:
-                                        run[
-                                            'pipeline_run_id'],
+                                        pipelineRunId,
                                   ),
                                 ),
                               ],

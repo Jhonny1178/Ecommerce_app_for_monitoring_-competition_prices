@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
-
+import time
 import psycopg2
 import psycopg2.extras
 from airflow import DAG
@@ -29,6 +29,10 @@ DB_CONFIG = {
 # Później produkcyjnie możesz dać np. 0 albo zmienić env.
 SCRAPY_ITEM_LIMIT = int(os.environ.get("SCRAPY_ITEM_LIMIT", "500"))
 
+PIPELINE_SCHEDULE_CRON = os.environ.get(
+    "PIPELINE_SCHEDULE_CRON",
+    "0 9 * * *",
+)
 # Na pokaz lepiej wyczyścić tabelę competitors przed scrapowaniem,
 # żeby matching nie mielił setek tysięcy starych rekordów.
 # Produkcyjnie ustaw to na false.
@@ -239,7 +243,107 @@ def save_task_run(
     except Exception as e:
         print(f"[PIPELINE_TASK_LOG] Could not save task run: {e}", flush=True)
 
+def create_live_task_run(
+    client_id,
+    pipeline_run_id,
+    task_id,
+    started_at,
+):
+    conn = None
+    cur = None
 
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO pipeline_task_runs
+            (
+                client_id,
+                pipeline_run_id,
+                task_id,
+                status,
+                started_at,
+                log_excerpt
+            )
+            VALUES (%s, %s, %s, 'running', %s, '')
+            RETURNING id
+        """, (
+            client_id,
+            pipeline_run_id,
+            task_id,
+            started_at,
+        ))
+
+        task_run_id = cur.fetchone()[0]
+
+        conn.commit()
+        return task_run_id
+
+    except Exception as e:
+        print(
+            f"[PIPELINE_TASK_LOG] "
+            f"Could not create live task: {e}",
+            flush=True,
+        )
+        return None
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
+
+
+def update_live_task_run(
+    task_run_id,
+    status,
+    log_excerpt,
+    error_msg=None,
+    finished_at=None,
+):
+    if not task_run_id:
+        return
+
+    conn = None
+    cur = None
+
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        cur.execute("""
+            UPDATE pipeline_task_runs
+            SET
+                status = %s,
+                log_excerpt = %s,
+                error_msg = %s,
+                finished_at = %s
+            WHERE id = %s
+        """, (
+            status,
+            log_excerpt,
+            error_msg,
+            finished_at,
+            task_run_id,
+        ))
+
+        conn.commit()
+
+    except Exception as e:
+        print(
+            f"[PIPELINE_TASK_LOG] "
+            f"Could not update live task: {e}",
+            flush=True,
+        )
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
 def save_error_log(client_id, category, message, error_type="runtime", error_code=None):
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -471,20 +575,34 @@ def ingest_client_products(client, pipeline_run_id=None):
         raise
 
 
-def run_spider_for_client(client, spider_name, pipeline_run_id=None):
+def run_spider_for_client(
+    client,
+    spider_name,
+    pipeline_run_id=None,
+):
     client_id = client["id"]
-    prefix = client.get("store_prefix") or client["slug"]
+    prefix = (
+        client.get("store_prefix")
+        or client["slug"]
+    )
+
     target_table = f"{prefix}_competitors"
 
     limit_setting = ""
+
     if SCRAPY_ITEM_LIMIT and SCRAPY_ITEM_LIMIT > 0:
-        limit_setting = f"-s CLOSESPIDER_ITEMCOUNT={SCRAPY_ITEM_LIMIT} "
+        limit_setting = (
+            f"-s CLOSESPIDER_ITEMCOUNT="
+            f"{SCRAPY_ITEM_LIMIT} "
+        )
 
     command = (
-        "export PYTHONPATH=$PYTHONPATH:/opt/airflow/dags && "
-        "cd /opt/airflow/dags/ecommerce_price_comparer && "
+        "export PYTHONPATH="
+        "$PYTHONPATH:/opt/airflow/dags && "
+        "cd /opt/airflow/dags/"
+        "ecommerce_price_comparer && "
         f"scrapy crawl {spider_name} "
-        f"-s LOG_LEVEL=INFO "
+        "-s LOG_LEVEL=INFO "
         f"{limit_setting}"
         f"-a target_table={target_table} "
         f"-a store_prefix={prefix}"
@@ -493,12 +611,34 @@ def run_spider_for_client(client, spider_name, pipeline_run_id=None):
     started_at = datetime.now()
     task_name = f"scraper_{spider_name}"
 
-    print(f"[SCRAPER] Client={client['name']} spider={spider_name}", flush=True)
-    print(f"[SCRAPER] Limit={SCRAPY_ITEM_LIMIT}", flush=True)
-    print(f"[SCRAPER] Target table={target_table}", flush=True)
-    print(f"[SCRAPER] Command={command}", flush=True)
+    print(
+        f"[SCRAPER] Client={client['name']} "
+        f"spider={spider_name}",
+        flush=True,
+    )
+    print(
+        f"[SCRAPER] Limit={SCRAPY_ITEM_LIMIT}",
+        flush=True,
+    )
+    print(
+        f"[SCRAPER] Target table={target_table}",
+        flush=True,
+    )
+    print(
+        f"[SCRAPER] Command={command}",
+        flush=True,
+    )
 
     lines = []
+
+    task_run_id = create_live_task_run(
+        client_id=client_id,
+        pipeline_run_id=pipeline_run_id,
+        task_id=task_name,
+        started_at=started_at,
+    )
+
+    last_database_update = time.monotonic()
 
     try:
         process = subprocess.Popen(
@@ -510,22 +650,148 @@ def run_spider_for_client(client, spider_name, pipeline_run_id=None):
             bufsize=1,
         )
 
+        if process.stdout is None:
+            raise RuntimeError(
+                "Nie udało się odczytać "
+                "wyjścia procesu scrapera."
+            )
+
         for line in process.stdout:
             clean_line = line.rstrip()
+
             print(clean_line, flush=True)
             lines.append(clean_line)
 
             if len(lines) > 300:
                 lines = lines[-300:]
 
+            current_time = time.monotonic()
+
+            if current_time - last_database_update >= 2:
+                update_live_task_run(
+                    task_run_id=task_run_id,
+                    status="running",
+                    log_excerpt="\n".join(
+                        lines[-200:]
+                    ),
+                )
+
+                last_database_update = current_time
+
         return_code = process.wait()
 
-        log_excerpt = "\n".join(lines[-200:])
+        log_excerpt = "\n".join(
+            lines[-200:]
+        )
+
         row_count = count_rows(target_table)
 
         if return_code != 0:
-            error_msg = f"Spider {spider_name} failed with code {return_code}"
+            error_msg = (
+                f"Spider {spider_name} "
+                f"failed with code {return_code}"
+            )
 
+            if task_run_id:
+                update_live_task_run(
+                    task_run_id=task_run_id,
+                    status="failed",
+                    log_excerpt=log_excerpt,
+                    error_msg=error_msg,
+                    finished_at=datetime.now(),
+                )
+            else:
+                save_task_run(
+                    client_id,
+                    pipeline_run_id,
+                    task_name,
+                    "failed",
+                    error_msg=error_msg,
+                    log_excerpt=log_excerpt,
+                    started_at=started_at,
+                    finished_at=datetime.now(),
+                )
+
+            save_error_log(
+                client_id,
+                "scraper",
+                error_msg,
+                error_code="scraper_failed",
+            )
+
+            mark_scraper_error(
+                client_id,
+                spider_name,
+                error_msg,
+            )
+
+            if SCRAPER_FAIL_DAG_ON_ERROR:
+                raise RuntimeError(error_msg)
+
+            return {
+                "success": False,
+                "spider": spider_name,
+                "error": error_msg,
+            }
+
+        clear_scraper_error(
+            client_id,
+            spider_name,
+        )
+
+        final_log = (
+            f"{log_excerpt}\n"
+            f"[SCRAPER] Finished "
+            f"spider={spider_name}, "
+            f"target_rows={row_count}"
+        ).strip()
+
+        if task_run_id:
+            update_live_task_run(
+                task_run_id=task_run_id,
+                status="success",
+                log_excerpt=final_log,
+                finished_at=datetime.now(),
+            )
+        else:
+            save_task_run(
+                client_id,
+                pipeline_run_id,
+                task_name,
+                "success",
+                log_excerpt=final_log,
+                started_at=started_at,
+                finished_at=datetime.now(),
+            )
+
+        print(
+            f"[SCRAPER] Finished "
+            f"spider={spider_name}, "
+            f"target_rows={row_count}",
+            flush=True,
+        )
+
+        return {
+            "success": True,
+            "spider": spider_name,
+            "target_rows": row_count,
+        }
+
+    except Exception as e:
+        error_msg = str(e)
+        log_excerpt = "\n".join(
+            lines[-200:]
+        )
+
+        if task_run_id:
+            update_live_task_run(
+                task_run_id=task_run_id,
+                status="failed",
+                log_excerpt=log_excerpt,
+                error_msg=error_msg,
+                finished_at=datetime.now(),
+            )
+        else:
             save_task_run(
                 client_id,
                 pipeline_run_id,
@@ -537,68 +803,34 @@ def run_spider_for_client(client, spider_name, pipeline_run_id=None):
                 finished_at=datetime.now(),
             )
 
-            save_error_log(
-                client_id,
-                "scraper",
-                error_msg,
-                error_code=f"scraper_{spider_name}_failed",
-            )
-
-            mark_scraper_error(client_id, spider_name, error_msg)
-
-            print(f"[SCRAPER] FAILED spider={spider_name}: {error_msg}", flush=True)
-
-            if SCRAPER_FAIL_DAG_ON_ERROR:
-                raise RuntimeError(error_msg)
-
-            return
-
-        clear_scraper_error(client_id, spider_name)
-
-        save_task_run(
-            client_id,
-            pipeline_run_id,
-            task_name,
-            "success",
-            log_excerpt=log_excerpt,
-            started_at=started_at,
-            finished_at=datetime.now(),
-        )
-
-        print(
-            f"[SCRAPER] Finished spider={spider_name} client={client['name']} "
-            f"target_rows={row_count}",
-            flush=True,
-        )
-
-    except Exception as e:
-        error_msg = str(e)
-        log_excerpt = "\n".join(lines[-200:])
-
-        save_task_run(
-            client_id,
-            pipeline_run_id,
-            task_name,
-            "failed",
-            error_msg=error_msg,
-            log_excerpt=log_excerpt,
-            started_at=started_at,
-            finished_at=datetime.now(),
-        )
-
         save_error_log(
             client_id,
             "scraper",
             error_msg,
-            error_code=f"scraper_{spider_name}_exception",
+            error_code="scraper_exception",
         )
 
-        mark_scraper_error(client_id, spider_name, error_msg)
+        mark_scraper_error(
+            client_id,
+            spider_name,
+            error_msg,
+        )
 
-        print(f"[SCRAPER] EXCEPTION spider={spider_name}: {error_msg}", flush=True)
+        print(
+            f"[SCRAPER] EXCEPTION "
+            f"spider={spider_name}: "
+            f"{error_msg}",
+            flush=True,
+        )
 
         if SCRAPER_FAIL_DAG_ON_ERROR:
             raise
+
+        return {
+            "success": False,
+            "spider": spider_name,
+            "error": error_msg,
+        }
 
 
 def run_matching_for_client(client, pipeline_run_id=None):
@@ -729,7 +961,7 @@ ACTIVE_CLIENTS = load_clients_for_dag_parse()
 with DAG(
     dag_id="multi_client_pipeline",
     start_date=datetime(2026, 5, 1),
-    schedule="0 9 * * *",
+    schedule=PIPELINE_SCHEDULE_CRON,
     catchup=False,
     max_active_runs=1,
     default_args=default_args,
