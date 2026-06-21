@@ -11,7 +11,10 @@ from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils.task_group import TaskGroup
 from airflow.utils.trigger_rule import TriggerRule
-
+import contextlib
+import functools
+import io
+from psycopg2 import sql
 
 DB_CONFIG = {
     "host": os.environ.get("APP_DB_HOST"),
@@ -27,7 +30,7 @@ DB_CONFIG = {
 # ============================================================
 # Każdy scraper zakończy się po 200 zescrapowanych itemach.
 # Później produkcyjnie możesz dać np. 0 albo zmienić env.
-SCRAPY_ITEM_LIMIT = int(os.environ.get("SCRAPY_ITEM_LIMIT", "500"))
+SCRAPY_ITEM_LIMIT = int(os.environ.get("SCRAPY_ITEM_LIMIT", "100"))
 
 PIPELINE_SCHEDULE_CRON = os.environ.get(
     "PIPELINE_SCHEDULE_CRON",
@@ -208,13 +211,75 @@ def save_task_run(
     started_at=None,
     finished_at=None,
 ):
+    conn = None
+    cur = None
+
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
         cur.execute("""
-            INSERT INTO pipeline_task_runs
-            (
+            SELECT
+                id,
+                COALESCE(log_excerpt, '')
+            FROM pipeline_task_runs
+            WHERE pipeline_run_id IS NOT DISTINCT FROM %s
+              AND task_id = %s
+            ORDER BY id DESC
+            LIMIT 1
+        """, (
+            pipeline_run_id,
+            task_id,
+        ))
+
+        existing_task = cur.fetchone()
+
+        if existing_task:
+            existing_id = existing_task[0]
+            existing_log = existing_task[1] or ""
+            summary = (log_excerpt or "").strip()
+
+            combined_log = existing_log.rstrip()
+
+            if summary and summary not in combined_log:
+                if combined_log:
+                    combined_log += "\n"
+
+                combined_log += summary
+
+            cur.execute("""
+                UPDATE pipeline_task_runs
+                SET
+                    status = %s,
+                    started_at = COALESCE(%s, started_at),
+                    finished_at = %s,
+                    log_excerpt = %s,
+                    error_msg = %s
+                WHERE id = %s
+            """, (
+                status,
+                started_at,
+                finished_at,
+                combined_log,
+                error_msg,
+                existing_id,
+            ))
+
+        else:
+            cur.execute("""
+                INSERT INTO pipeline_task_runs
+                (
+                    client_id,
+                    pipeline_run_id,
+                    task_id,
+                    status,
+                    started_at,
+                    finished_at,
+                    log_excerpt,
+                    error_msg
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
                 client_id,
                 pipeline_run_id,
                 task_id,
@@ -222,26 +287,27 @@ def save_task_run(
                 started_at,
                 finished_at,
                 log_excerpt,
-                error_msg
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            client_id,
-            pipeline_run_id,
-            task_id,
-            status,
-            started_at,
-            finished_at,
-            log_excerpt,
-            error_msg,
-        ))
+                error_msg,
+            ))
 
         conn.commit()
-        cur.close()
-        conn.close()
 
     except Exception as e:
-        print(f"[PIPELINE_TASK_LOG] Could not save task run: {e}", flush=True)
+        if conn:
+            conn.rollback()
+
+        print(
+            f"[PIPELINE_TASK_LOG] "
+            f"Could not save task run: {e}",
+            flush=True,
+        )
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
 
 def create_live_task_run(
     client_id,
@@ -344,6 +410,200 @@ def update_live_task_run(
 
         if conn:
             conn.close()
+class LiveTaskLogCapture(io.TextIOBase):
+    def __init__(
+        self,
+        task_run_id,
+        original_stream,
+        update_interval=1.0,
+        max_characters=60000,
+    ):
+        self.task_run_id = task_run_id
+        self.original_stream = original_stream
+        self.update_interval = update_interval
+        self.max_characters = max_characters
+
+        self._parts = []
+        self._last_update = 0.0
+        self._is_synchronizing = False
+
+    def write(self, text):
+        if not text:
+            return 0
+
+        self.original_stream.write(text)
+        self._parts.append(text)
+
+        if not self._is_synchronizing:
+            self.synchronize()
+
+        return len(text)
+
+    def flush(self):
+        self.original_stream.flush()
+
+        if not self._is_synchronizing:
+            self.synchronize()
+
+    def get_log_text(self):
+        value = "".join(self._parts)
+
+        if len(value) > self.max_characters:
+            value = value[-self.max_characters:]
+            self._parts = [value]
+
+        return value.strip()
+
+    def synchronize(
+        self,
+        force=False,
+        status="running",
+        error_msg=None,
+        finished_at=None,
+    ):
+        if not self.task_run_id:
+            return
+
+        current_time = time.monotonic()
+
+        if (
+            not force
+            and current_time - self._last_update
+            < self.update_interval
+        ):
+            return
+
+        self._is_synchronizing = True
+
+        try:
+            update_live_task_run(
+                task_run_id=self.task_run_id,
+                status=status,
+                log_excerpt=self.get_log_text(),
+                error_msg=error_msg,
+                finished_at=finished_at,
+            )
+
+            self._last_update = current_time
+
+        finally:
+            self._is_synchronizing = False
+
+
+def finish_live_task_if_running(
+    task_run_id,
+    status,
+    log_excerpt,
+    error_msg=None,
+):
+    if not task_run_id:
+        return
+
+    conn = None
+    cur = None
+
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        cur.execute("""
+            UPDATE pipeline_task_runs
+            SET
+                status = %s,
+                log_excerpt = %s,
+                error_msg = %s,
+                finished_at = NOW()
+            WHERE id = %s
+              AND status = 'running'
+        """, (
+            status,
+            log_excerpt,
+            error_msg,
+            task_run_id,
+        ))
+
+        conn.commit()
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+
+        print(
+            f"[PIPELINE_TASK_LOG] "
+            f"Could not finish live task: {e}",
+            flush=True,
+        )
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
+
+
+def capture_task_prints(task_name_factory):
+    def decorator(function):
+        @functools.wraps(function)
+        def wrapper(
+            client,
+            pipeline_run_id=None,
+            *args,
+            **kwargs,
+        ):
+            client_id = client["id"]
+            task_name = task_name_factory(client)
+            started_at = datetime.now()
+
+            task_run_id = create_live_task_run(
+                client_id=client_id,
+                pipeline_run_id=pipeline_run_id,
+                task_id=task_name,
+                started_at=started_at,
+            )
+
+            capture = LiveTaskLogCapture(
+                task_run_id=task_run_id,
+                original_stream=sys.stdout,
+            )
+
+            try:
+                with contextlib.redirect_stdout(capture):
+                    with contextlib.redirect_stderr(capture):
+                        result = function(
+                            client,
+                            pipeline_run_id,
+                            *args,
+                            **kwargs,
+                        )
+
+                capture.synchronize(force=True)
+
+                finish_live_task_if_running(
+                    task_run_id=task_run_id,
+                    status="success",
+                    log_excerpt=capture.get_log_text(),
+                )
+
+                return result
+
+            except Exception as e:
+                capture.write(
+                    f"\n[ERROR] {type(e).__name__}: {e}\n"
+                )
+
+                capture.synchronize(
+                    force=True,
+                    status="failed",
+                    error_msg=str(e),
+                    finished_at=datetime.now(),
+                )
+
+                raise
+
+        return wrapper
+
+    return decorator
 def save_error_log(client_id, category, message, error_type="runtime", error_code=None):
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -441,7 +701,160 @@ def count_rows(table_name):
         print(f"[COUNT] Could not count table={table_name}: {e}", flush=True)
         return None
 
+def remove_incomplete_match_rows(table_name):
+    conn = None
+    cur = None
 
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = %s
+        """, (table_name,))
+
+        columns = {
+            row[0]
+            for row in cur.fetchall()
+        }
+
+        excluded_prefixes = {
+            "client",
+            "product",
+            "our",
+        }
+
+        competitor_prefixes = sorted({
+            column_name[:-4]
+            for column_name in columns
+            if column_name.endswith("_url")
+            and column_name[:-4]
+            not in excluded_prefixes
+        })
+
+        valid_match_conditions = []
+
+        for competitor_prefix in competitor_prefixes:
+            url_column = (
+                f"{competitor_prefix}_url"
+            )
+
+            name_column = (
+                f"{competitor_prefix}_name"
+            )
+
+            price_column = (
+                f"{competitor_prefix}_price"
+            )
+
+            if (
+                url_column not in columns
+                or name_column not in columns
+                or price_column not in columns
+            ):
+                continue
+
+            valid_match_conditions.append(
+                sql.SQL("""
+                    (
+                        NULLIF(
+                            BTRIM(
+                                CAST({url_column} AS TEXT)
+                            ),
+                            ''
+                        ) IS NOT NULL
+                        AND NULLIF(
+                            BTRIM(
+                                CAST({name_column} AS TEXT)
+                            ),
+                            ''
+                        ) IS NOT NULL
+                        AND NULLIF(
+                            BTRIM(
+                                CAST({price_column} AS TEXT)
+                            ),
+                            ''
+                        ) IS NOT NULL
+                    )
+                """).format(
+                    url_column=sql.Identifier(
+                        url_column
+                    ),
+                    name_column=sql.Identifier(
+                        name_column
+                    ),
+                    price_column=sql.Identifier(
+                        price_column
+                    ),
+                )
+            )
+
+        if not valid_match_conditions:
+            print(
+                f"[MATCHING] Nie znaleziono kolumn "
+                f"konkurencji w tabeli {table_name}.",
+                flush=True,
+            )
+
+            return 0, count_rows(table_name) or 0
+
+        valid_match_expression = sql.SQL(
+            " OR "
+        ).join(valid_match_conditions)
+
+        delete_query = sql.SQL("""
+            DELETE FROM {table_name}
+            WHERE NOT (
+                {valid_match_expression}
+            )
+        """).format(
+            table_name=sql.Identifier(
+                table_name
+            ),
+            valid_match_expression=(
+                valid_match_expression
+            ),
+        )
+
+        cur.execute(delete_query)
+
+        removed_rows = cur.rowcount
+
+        count_query = sql.SQL("""
+            SELECT COUNT(*)
+            FROM {table_name}
+        """).format(
+            table_name=sql.Identifier(
+                table_name
+            ),
+        )
+
+        cur.execute(count_query)
+
+        valid_matches_count = cur.fetchone()[0]
+
+        conn.commit()
+
+        return (
+            removed_rows,
+            valid_matches_count,
+        )
+
+    except Exception:
+        if conn:
+            conn.rollback()
+
+        raise
+
+    finally:
+        if cur:
+            cur.close()
+
+        if conn:
+            conn.close()
 def reset_competitors_table_for_demo(client, pipeline_run_id=None):
     client_id = client["id"]
     prefix = client.get("store_prefix") or client["slug"]
@@ -498,6 +911,11 @@ def reset_competitors_table_for_demo(client, pipeline_run_id=None):
         raise
 
 
+@capture_task_prints(
+    lambda client:
+        client.get("store_prefix")
+        or client["slug"]
+)
 def ingest_client_products(client, pipeline_run_id=None):
     sys.path.insert(0, "/opt/airflow/dags")
 
@@ -511,10 +929,9 @@ def ingest_client_products(client, pipeline_run_id=None):
     source_path = client.get("source_path")
     source_url = client.get("source_url")
     file_format = client.get("file_format")
-    field_mapping = normalize_field_mapping(client.get("field_mapping"))
-
-    started_at = datetime.now()
-    task_name = prefix
+    field_mapping = normalize_field_mapping(
+        client.get("field_mapping")
+    )
 
     try:
         if source_type == "url" and source_url:
@@ -523,7 +940,9 @@ def ingest_client_products(client, pipeline_run_id=None):
         if not source_type or not source_path or not file_format:
             raise ValueError(
                 f"Client {client['id']} has incomplete source config: "
-                f"source_type={source_type}, source_path={source_path}, file_format={file_format}"
+                f"source_type={source_type}, "
+                f"source_path={source_path}, "
+                f"file_format={file_format}"
             )
 
         config = {
@@ -534,45 +953,83 @@ def ingest_client_products(client, pipeline_run_id=None):
             "field_mapping": field_mapping,
         }
 
-        print(f"[INGEST] Client={client['name']} prefix={prefix}", flush=True)
-        print(f"[INGEST] Source={source_type} path={source_path} format={file_format}", flush=True)
-        print(f"[INGEST] Target table={products_table}", flush=True)
+        print(
+            f"[INGEST] Client={client['name']} "
+            f"prefix={prefix}",
+            flush=True,
+        )
+
+        print(
+            f"[INGEST] Source={source_type} "
+            f"path={source_path} "
+            f"format={file_format}",
+            flush=True,
+        )
+
+        print(
+            f"[INGEST] Target table={products_table}",
+            flush=True,
+        )
+
+        print(
+            "[INGEST] Rozpoczynam pobieranie, "
+            "walidację i normalizację danych.",
+            flush=True,
+        )
 
         extractor = DataExtractor(config=config)
         loader = DataLoader(table_name=products_table)
-        loader.load(extractor.extract(), batch_size=500)
 
-        row_count = count_rows(products_table)
-
-        print(f"[INGEST] Finished for client={client['name']} rows={row_count}", flush=True)
-
-        save_task_run(
-            client_id,
-            pipeline_run_id,
-            task_name,
-            "success",
-            started_at=started_at,
-            finished_at=datetime.now(),
-            log_excerpt=f"products_table={products_table}, rows={row_count}",
+        loader.load(
+            extractor.extract(),
+            batch_size=500,
         )
+
+        row_count = count_rows(products_table) or 0
+
+        print(
+            "[INGEST] Zakończono zapis danych "
+            "klienta do bazy.",
+            flush=True,
+        )
+
+        print(
+            f"[INGEST] Produkty zapisane w tabeli: "
+            f"{products_table}",
+            flush=True,
+        )
+
+        print(
+            f"[INGEST] Liczba produktów: "
+            f"{row_count}",
+            flush=True,
+        )
+
+        return {
+            "products_table": products_table,
+            "rows": row_count,
+        }
 
     except Exception as e:
         error_msg = str(e)
 
-        save_task_run(
+        save_error_log(
             client_id,
-            pipeline_run_id,
-            task_name,
-            "failed",
-            error_msg=error_msg,
-            started_at=started_at,
-            finished_at=datetime.now(),
+            "ingest",
+            error_msg,
+            error_code="ingest_failed",
         )
 
-        save_error_log(client_id, "ingest", error_msg, error_code="ingest_failed")
+        print(
+            f"[INGEST] FAILED "
+            f"client={client['name']}: "
+            f"{error_msg}",
+            flush=True,
+        )
 
-        print(f"[INGEST] FAILED client={client['name']}: {error_msg}", flush=True)
         raise
+
+
 
 
 def run_spider_for_client(
@@ -831,38 +1288,41 @@ def run_spider_for_client(
             "spider": spider_name,
             "error": error_msg,
         }
-
-
+@capture_task_prints(
+    lambda client: "run_matching"
+)
 def run_matching_for_client(client, pipeline_run_id=None):
     sys.path.insert(0, "/opt/airflow/dags")
 
-    from processors.files_connector import MultiTenantReportGenerator
+    from processors.files_connector import (
+        MultiTenantReportGenerator
+    )
 
     client_id = client["id"]
     prefix = client.get("store_prefix") or client["slug"]
 
-    spiders = normalize_spiders(client.get("spiders_to_run"))
+    spiders = normalize_spiders(
+        client.get("spiders_to_run")
+    )
 
-    # Ważne: w competitors store często jest lowercase, np. "calavado",
-    # a spider w Scrapy może mieć name="Calavado".
-    competitor_stores = [spider.lower() for spider in spiders]
-
-    started_at = datetime.now()
-    task_name = "run_matching"
+    competitor_stores = [
+        spider.lower()
+        for spider in spiders
+    ]
 
     try:
         if not competitor_stores:
-            print(f"[MATCH] Skipping client={client['name']} because spiders_to_run is empty", flush=True)
-            save_task_run(
-                client_id,
-                pipeline_run_id,
-                task_name,
-                "success",
-                started_at=started_at,
-                finished_at=datetime.now(),
-                log_excerpt="Skipped because spiders_to_run is empty",
+            print(
+                f"[MATCHING] Pominięto klienta "
+                f"{client['name']}, ponieważ lista "
+                f"scraperów jest pusta.",
+                flush=True,
             )
-            return
+
+            return {
+                "skipped": True,
+                "reason": "spiders_to_run is empty",
+            }
 
         config = {
             "client_table": f"{prefix}_products",
@@ -871,19 +1331,68 @@ def run_matching_for_client(client, pipeline_run_id=None):
             "competitor_stores": competitor_stores,
         }
 
-        name_threshold = client.get("match_name_threshold") or 90
-        color_threshold = client.get("match_color_threshold") or 80
-        maker_threshold = client.get("match_maker_threshold") or 80
+        name_threshold = (
+            client.get("match_name_threshold")
+            or 90
+        )
 
-        print(f"[MATCH] Client={client['name']} prefix={prefix}", flush=True)
-        print(f"[MATCH] Config={config}", flush=True)
+        color_threshold = (
+            client.get("match_color_threshold")
+            or 80
+        )
+
+        maker_threshold = (
+            client.get("match_maker_threshold")
+            or 80
+        )
+
         print(
-            f"[MATCH] Thresholds: name={name_threshold}, "
-            f"color={color_threshold}, maker={maker_threshold}",
+            f"[MATCHING] Client={client['name']} "
+            f"prefix={prefix}",
             flush=True,
         )
 
-        generator = MultiTenantReportGenerator(config=config)
+        print(
+            f"[MATCHING] Tabela produktów klienta: "
+            f"{config['client_table']}",
+            flush=True,
+        )
+
+        print(
+            f"[MATCHING] Tabela ofert konkurencji: "
+            f"{config['competitor_table']}",
+            flush=True,
+        )
+
+        print(
+            f"[MATCHING] Tabela wynikowa: "
+            f"{config['target_table']}",
+            flush=True,
+        )
+
+        print(
+            f"[MATCHING] Sklepy konkurencji: "
+            f"{', '.join(competitor_stores)}",
+            flush=True,
+        )
+
+        print(
+            f"[MATCHING] Progi: "
+            f"nazwa={name_threshold}, "
+            f"kolor={color_threshold}, "
+            f"producent={maker_threshold}",
+            flush=True,
+        )
+
+        print(
+            "[MATCHING] Rozpoczynam dopasowywanie "
+            "produktów.",
+            flush=True,
+        )
+
+        generator = MultiTenantReportGenerator(
+            config=config
+        )
 
         result = generator.generate_report(
             name_threshold=name_threshold,
@@ -892,24 +1401,78 @@ def run_matching_for_client(client, pipeline_run_id=None):
         )
 
         matches_table = f"{prefix}_matches"
-        matches_count = count_rows(matches_table)
+
+        generated_rows = (
+            count_rows(matches_table)
+            or 0
+        )
+
+        removed_empty_rows, matches_count = (
+            remove_incomplete_match_rows(
+                matches_table
+            )
+        )
+
+        print(
+            f"[MATCHING] Wygenerowano wierszy: "
+            f"{generated_rows}",
+            flush=True,
+        )
+
+        print(
+            f"[MATCHING] Usunięto pustych lub "
+            f"niekompletnych wierszy: "
+            f"{removed_empty_rows}",
+            flush=True,
+        )
+
+        print(
+            f"[MATCHING] Poprawnych dopasowań: "
+            f"{matches_count}",
+            flush=True,
+        )
 
         if result is None:
-            print(f"[MATCH] No report generated for client={client['name']}", flush=True)
-            log_excerpt = f"No report generated. matches_count={matches_count}"
+            print(
+                "[MATCHING] Generator nie zwrócił "
+                "obiektu raportu, ale wyniki zostały "
+                "sprawdzone bezpośrednio w bazie.",
+                flush=True,
+            )
         else:
-            print(f"[MATCH] Generated rows={len(result)} for client={client['name']}", flush=True)
-            log_excerpt = f"Generated rows={len(result)}. matches_count={matches_count}"
+            print(
+                "[MATCHING] Proces matchowania "
+                "zakończony poprawnie.",
+                flush=True,
+            )
 
-        save_task_run(
+        return {
+            "generated_rows": generated_rows,
+            "removed_incomplete_rows": (
+                removed_empty_rows
+            ),
+            "matches_count": matches_count,
+        }
+
+    except Exception as e:
+        error_msg = str(e)
+
+        save_error_log(
             client_id,
-            pipeline_run_id,
-            task_name,
-            "success",
-            started_at=started_at,
-            finished_at=datetime.now(),
-            log_excerpt=log_excerpt,
+            "matching",
+            error_msg,
+            error_code="matching_failed",
         )
+
+        print(
+            f"[MATCHING] FAILED "
+            f"client={client['name']}: "
+            f"{error_msg}",
+            flush=True,
+        )
+
+        raise
+
 
     except Exception as e:
         error_msg = str(e)

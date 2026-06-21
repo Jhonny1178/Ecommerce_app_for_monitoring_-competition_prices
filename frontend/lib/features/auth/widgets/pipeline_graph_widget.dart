@@ -1,5 +1,6 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:tonten/core/api/api_client.dart';
 
@@ -16,33 +17,65 @@ class PipelineGraphWidget extends StatefulWidget {
       _PipelineGraphWidgetState();
 }
 
-class _PipelineGraphWidgetState
-    extends State<PipelineGraphWidget> {
+class _PipelineGraphWidgetState extends State<PipelineGraphWidget> {
   bool _isLoading = true;
-  List<dynamic> _tasks = [];
-  String? _error;
-  Timer? _refreshTimer;
   bool _isFetching = false;
 
- @override
- void initState() {
+  List<dynamic> _tasks = [];
+  String? _error;
+
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
     super.initState();
 
     if (widget.pipelineRunId == null) {
-    _isLoading = false;
-    _error = 'Brak ID pipeline’u.';
-    return;
+      _isLoading = false;
+      _error = 'Brak ID pipeline’u.';
+      return;
     }
 
     _fetchTasks(showLoader: true);
+    _startRefreshTimer();
+  }
+
+  @override
+  void didUpdateWidget(
+    covariant PipelineGraphWidget oldWidget,
+  ) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.pipelineRunId != widget.pipelineRunId) {
+      _refreshTimer?.cancel();
+
+      _tasks = [];
+      _error = null;
+
+      if (widget.pipelineRunId == null) {
+        setState(() {
+          _isLoading = false;
+          _error = 'Brak ID pipeline’u.';
+        });
+
+        return;
+      }
+
+      _fetchTasks(showLoader: true);
+      _startRefreshTimer();
+    }
+  }
+
+  void _startRefreshTimer() {
+    _refreshTimer?.cancel();
 
     _refreshTimer = Timer.periodic(
-    const Duration(seconds: 3),
-    (_) {
-      _fetchTasks();
-    },
+      const Duration(seconds: 3),
+      (_) {
+        _fetchTasks();
+      },
     );
-    }
+  }
 
   @override
   void dispose() {
@@ -51,96 +84,136 @@ class _PipelineGraphWidgetState
   }
 
   Future<void> _fetchTasks({
-  bool showLoader = false,
-}) async {
-  if (_isFetching ||
-      widget.pipelineRunId == null) {
-    return;
-  }
+    bool showLoader = false,
+  }) async {
+    if (_isFetching || widget.pipelineRunId == null) {
+      return;
+    }
 
-  _isFetching = true;
+    _isFetching = true;
 
-  if (showLoader && mounted) {
-    setState(() {
-      _isLoading = true;
-    });
-  }
+    if (showLoader && mounted) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
 
-  try {
-    final response = await ApiClient.get(
-      Uri.parse(
-        "/api/admin/pipeline_runs/"
-        "${widget.pipelineRunId}/tasks",
-      ),
-    );
-
-    final data = jsonDecode(response.body);
-
-    if (response.statusCode == 200 &&
-        data['ok'] == true) {
-      final tasks = List<dynamic>.from(
-        data['tasks'] ?? [],
+    try {
+      final response = await ApiClient.get(
+        Uri.parse(
+          '/api/admin/pipeline_runs/'
+          '${widget.pipelineRunId}/tasks',
+        ),
       );
 
-      tasks.removeWhere((task) {
-        final taskId =
-            task['task_id']?.toString() ?? '';
+      final contentType =
+          response.headers['content-type'] ?? '';
 
-        final status =
-            task['status']?.toString() ?? '';
+      if (!contentType.contains('application/json')) {
+        final preview = response.body.length > 300
+            ? response.body.substring(0, 300)
+            : response.body;
 
-        return taskId.startsWith(
-                  'finish_pipeline_',
-                ) &&
-            status == 'skipped';
-      });
+        throw Exception(
+          'Backend zwrócił kod ${response.statusCode} '
+          'zamiast JSON.\n$preview',
+        );
+      }
 
-      tasks.sort((first, second) {
-        final firstId =
-            first['task_id']?.toString() ?? '';
+      final dynamic decoded = jsonDecode(response.body);
 
-        final secondId =
-            second['task_id']?.toString() ?? '';
+      if (decoded is! Map<String, dynamic>) {
+        throw Exception(
+          'Backend zwrócił nieprawidłowy format danych.',
+        );
+      }
 
-        final orderResult =
-            _taskOrder(firstId).compareTo(
-          _taskOrder(secondId),
+      if (response.statusCode == 200 &&
+          decoded['ok'] == true) {
+        final tasks = List<dynamic>.from(
+          decoded['tasks'] ?? [],
         );
 
-        if (orderResult != 0) {
-          return orderResult;
+        tasks.removeWhere((task) {
+          final taskId =
+              task['task_id']?.toString() ?? '';
+
+          final status = task['status']
+                  ?.toString()
+                  .toLowerCase() ??
+              '';
+
+          return taskId.startsWith(
+                'finish_pipeline_',
+              ) &&
+              status == 'skipped';
+        });
+
+        tasks.sort((first, second) {
+          final firstId =
+              first['task_id']?.toString() ?? '';
+
+          final secondId =
+              second['task_id']?.toString() ?? '';
+
+          final orderResult = _taskOrder(
+            firstId,
+          ).compareTo(
+            _taskOrder(secondId),
+          );
+
+          if (orderResult != 0) {
+            return orderResult;
+          }
+
+          return firstId.compareTo(secondId);
+        });
+
+        if (mounted) {
+          setState(() {
+            _tasks = tasks;
+            _error = null;
+            _isLoading = false;
+          });
         }
+      } else {
+        final message =
+            decoded['error']?.toString() ??
+                'Błąd pobierania zadań.';
 
-        return firstId.compareTo(secondId);
-      });
-
-      if (mounted) {
+        if (mounted && _tasks.isEmpty) {
+          setState(() {
+            _error = message;
+            _isLoading = false;
+          });
+        } else {
+          debugPrint(
+            'Błąd odświeżania pipeline’u: $message',
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted && _tasks.isEmpty) {
         setState(() {
-          _tasks = tasks;
-          _error = null;
+          _error = e.toString();
           _isLoading = false;
         });
+      } else {
+        debugPrint(
+          'Błąd odświeżania pipeline’u: $e',
+        );
       }
-    } else {
-      if (mounted) {
+    } finally {
+      _isFetching = false;
+
+      if (mounted && _isLoading) {
         setState(() {
-          _error = data['error']?.toString() ??
-              'Błąd pobierania zadań.';
           _isLoading = false;
         });
       }
     }
-  } catch (e) {
-    if (mounted) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-    }
-  } finally {
-    _isFetching = false;
   }
-}
 
   int _taskOrder(String taskId) {
     final value = taskId.toLowerCase();
@@ -196,6 +269,15 @@ class _PipelineGraphWidgetState
       return 'Scraper: pod_pierzyna';
     }
 
+    if (value.startsWith('scrape_') ||
+        value.startsWith('scraper_')) {
+      final cleanedName = taskId
+          .replaceFirst('scrape_', '')
+          .replaceFirst('scraper_', '');
+
+      return 'Scraper: $cleanedName';
+    }
+
     if (value.contains('matching')) {
       return 'Matching produktów';
     }
@@ -240,29 +322,166 @@ class _PipelineGraphWidgetState
     }
   }
 
+  IconData _statusIcon(dynamic value) {
+    switch (value?.toString().toLowerCase()) {
+      case 'success':
+        return Icons.check_circle;
+      case 'failed':
+        return Icons.error;
+      case 'running':
+        return Icons.autorenew;
+      case 'skipped':
+        return Icons.skip_next;
+      default:
+        return Icons.info_outline;
+    }
+  }
+
+  String _cleanLogText(dynamic value) {
+    final text = value?.toString() ?? '';
+
+    return text
+        .replaceAll(
+          RegExp(r'\x1B\[[0-9;]*[A-Za-z]'),
+          '',
+        )
+        .replaceAll('\r', '')
+        .trim();
+  }
+
+  Widget _buildLogContainer({
+    required String taskId,
+    required String logs,
+  }) {
+    if (logs.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(context)
+              .colorScheme
+              .surfaceContainerHighest
+              .withOpacity(0.35),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Row(
+          children: [
+            Icon(
+              Icons.info_outline,
+              size: 18,
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Brak szczegółowych logów dla tego etapu.',
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RepaintBoundary(
+      key: ValueKey<String>(
+        'pipeline-log-'
+        '${widget.pipelineRunId}-'
+        '$taskId-'
+        '${logs.hashCode}',
+      ),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(
+          minHeight: 80,
+          maxHeight: 320,
+        ),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: const Color(0xFF3A3A3A),
+          ),
+        ),
+        child: SingleChildScrollView(
+          child: SelectionArea(
+            child: Text(
+              logs,
+              style: const TextStyle(
+                color: Color(0xFFE6EDF3),
+                fontFamily: 'monospace',
+                fontSize: 12,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme =
         Theme.of(context).colorScheme;
 
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
+      return const Padding(
+        padding: EdgeInsets.all(32),
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
       );
     }
 
     if (_error != null) {
-      return Text(
-        _error!,
-        style: TextStyle(
-          color: colorScheme.error,
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.error_outline,
+              color: colorScheme.error,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _error!,
+                style: TextStyle(
+                  color: colorScheme.onErrorContainer,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Spróbuj ponownie',
+              onPressed: () {
+                _fetchTasks(showLoader: true);
+              },
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
         ),
       );
     }
 
     if (_tasks.isEmpty) {
-      return const Text(
-        'Brak zarejestrowanych zadań.',
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: colorScheme
+              .surfaceContainerHighest
+              .withOpacity(0.35),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Text(
+          'Brak zarejestrowanych zadań.',
+        ),
       );
     }
 
@@ -270,12 +489,27 @@ class _PipelineGraphWidgetState
       crossAxisAlignment:
           CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Przebieg procesu',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Przebieg procesu',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Odśwież zadania i logi',
+              onPressed: _isFetching
+                  ? null
+                  : () {
+                      _fetchTasks();
+                    },
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
         ),
         const SizedBox(height: 14),
         Wrap(
@@ -290,8 +524,7 @@ class _PipelineGraphWidgetState
                   task['task_id']?.toString() ??
                       '-';
 
-              final status =
-                  task['status'];
+              final status = task['status'];
 
               final statusColor =
                   _statusColor(
@@ -301,24 +534,26 @@ class _PipelineGraphWidgetState
 
               return Container(
                 width: 220,
-                padding:
-                    const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: statusColor
-                      .withOpacity(0.06),
+                  color: statusColor.withOpacity(
+                    0.06,
+                  ),
                   borderRadius:
                       BorderRadius.circular(14),
                   border: Border.all(
-                    color: statusColor
-                        .withOpacity(0.45),
+                    color: statusColor.withOpacity(
+                      0.45,
+                    ),
                   ),
                 ),
                 child: Row(
                   children: [
                     CircleAvatar(
                       backgroundColor:
-                          statusColor
-                              .withOpacity(0.15),
+                          statusColor.withOpacity(
+                        0.15,
+                      ),
                       child: Text(
                         '${index + 1}',
                         style: TextStyle(
@@ -332,8 +567,7 @@ class _PipelineGraphWidgetState
                     Expanded(
                       child: Column(
                         crossAxisAlignment:
-                            CrossAxisAlignment
-                                .start,
+                            CrossAxisAlignment.start,
                         children: [
                           Text(
                             _displayTaskName(
@@ -345,6 +579,7 @@ class _PipelineGraphWidgetState
                                   FontWeight.bold,
                             ),
                           ),
+                          const SizedBox(height: 2),
                           Text(
                             _statusLabel(status),
                             style: TextStyle(
@@ -374,8 +609,11 @@ class _PipelineGraphWidgetState
           final taskId =
               task['task_id']?.toString() ?? '-';
 
-          final status =
-              task['status'];
+          final status = task['status'];
+
+          final normalizedStatus =
+              status?.toString().toLowerCase() ??
+                  '';
 
           final statusColor =
               _statusColor(
@@ -383,29 +621,42 @@ class _PipelineGraphWidgetState
             colorScheme,
           );
 
-          final logs = (
-              task['log_excerpt'] ??
-              task['logs'] ??
-              ''
-            ).toString().trim();
+          final logs = _cleanLogText(
+            task['log_excerpt'] ??
+                task['logs'],
+          );
 
-          final error =
-              task['error_msg']?.toString() ??
-                  '';
+          final error = _cleanLogText(
+            task['error_msg'] ??
+                task['error'],
+          );
+
+          final shouldExpand =
+              normalizedStatus == 'failed' ||
+                  normalizedStatus == 'running';
 
           return Card(
             elevation: 0,
             margin:
                 const EdgeInsets.only(bottom: 8),
+            color: colorScheme.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius:
+                  BorderRadius.circular(12),
+              side: BorderSide(
+                color: colorScheme.outlineVariant,
+              ),
+            ),
             child: ExpansionTile(
-              initiallyExpanded:
-                  status == 'failed',
+              key: PageStorageKey<String>(
+                'pipeline-task-'
+                '${widget.pipelineRunId}-'
+                '$taskId',
+              ),
+              maintainState: true,
+              initiallyExpanded: shouldExpand,
               leading: Icon(
-                status == 'success'
-                    ? Icons.check_circle
-                    : status == 'failed'
-                        ? Icons.error
-                        : Icons.info_outline,
+                _statusIcon(status),
                 color: statusColor,
               ),
               title: Text(
@@ -416,62 +667,85 @@ class _PipelineGraphWidgetState
               ),
               subtitle: Text(
                 _statusLabel(status),
+                style: TextStyle(
+                  color: statusColor,
+                ),
               ),
               children: [
                 Padding(
-                  padding:
-                      const EdgeInsets.all(14),
+                  padding: const EdgeInsets.fromLTRB(
+                    14,
+                    0,
+                    14,
+                    14,
+                  ),
                   child: Column(
                     crossAxisAlignment:
                         CrossAxisAlignment.start,
                     children: [
                       if (error.isNotEmpty) ...[
-                        Text(
-                          error,
-                          style: TextStyle(
-                            color:
-                                colorScheme.error,
+                        Container(
+                          width: double.infinity,
+                          padding:
+                              const EdgeInsets.all(
+                            12,
                           ),
-                        ),
-                        const SizedBox(
-                          height: 10,
-                        ),
-                      ],
-                      Container(
-                        width: double.infinity,
-                        constraints:
-                            const BoxConstraints(
-                          maxHeight: 280,
-                        ),
-                        padding:
-                            const EdgeInsets.all(
-                          12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colorScheme
-                              .surfaceContainerHighest
-                              .withOpacity(0.4),
-                          borderRadius:
-                              BorderRadius.circular(
-                            8,
+                          decoration: BoxDecoration(
+                            color: colorScheme
+                                .errorContainer,
+                            borderRadius:
+                                BorderRadius.circular(
+                              8,
+                            ),
                           ),
-                        ),
-                        child:
-                            SingleChildScrollView(
-                          child: SelectableText(
-                            logs.isEmpty
-                                ? 'Brak zapisanych logów '
-                                    'dla tego etapu.'
-                                : logs,
-                            style:
-                                const TextStyle(
-                              fontFamily:
-                                  'monospace',
-                              fontSize: 12,
+                          child: SelectionArea(
+                            child: Text(
+                              error,
+                              style: TextStyle(
+                                color: colorScheme
+                                    .onErrorContainer,
+                                fontFamily:
+                                    'monospace',
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ),
+                        const SizedBox(height: 10),
+                      ],
+                      _buildLogContainer(
+                        taskId: taskId,
+                        logs: logs,
                       ),
+                      if (normalizedStatus ==
+                          'running') ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child:
+                                  CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: statusColor,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Log jest odświeżany '
+                                'automatycznie co 3 sekundy.',
+                                style: TextStyle(
+                                  color: colorScheme
+                                      .onSurfaceVariant,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -483,3 +757,4 @@ class _PipelineGraphWidgetState
     );
   }
 }
+
