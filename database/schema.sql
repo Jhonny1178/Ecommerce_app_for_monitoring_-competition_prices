@@ -647,3 +647,24 @@ CREATE TABLE IF NOT EXISTS password_resets (
 
 CREATE INDEX IF NOT EXISTS idx_password_resets_user_id
 ON password_resets(user_id);
+
+-- ============================================================
+-- 16. Zarządzanie kluczami API (GROQ)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS api_keys_usage (
+    id SERIAL PRIMARY KEY,
+    key_name VARCHAR(50) UNIQUE NOT NULL,
+    total_tokens INTEGER DEFAULT 0,
+    is_exhausted BOOLEAN DEFAULT FALSE,
+    last_used TIMESTAMP,
+    exhausted_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+INSERT INTO api_keys_usage (key_name)
+VALUES
+    ('GROQ_API_KEY_1'),
+    ('GROQ_API_KEY_2'),
+    ('GROQ_API_KEY_3')
+ON CONFLICT (key_name) DO NOTHING;
